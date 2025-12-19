@@ -79,7 +79,9 @@ namespace StreamPunk.Threading
             this.ThreadPinningRoutine = threadPinningRoutine;
         }
 
-        // *** APIs *** 
+        // *** PRIVATE APIs ***
+
+        // *** PUBLIC APIs *** 
 
         // For starting the thread.
         //

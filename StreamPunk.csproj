@@ -10,6 +10,8 @@
   <ItemGroup>
     <Folder Include="EventLoop\" />
     <Folder Include="Pipes\" />
+    <Folder Include="Threading\ForeignFunctions\Linux\" />
+    <Folder Include="Threading\ForeignFunctions\Windows\" />
   </ItemGroup>
 
 </Project>
