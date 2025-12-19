@@ -81,6 +81,8 @@ namespace StreamPunk.Threading
 
         // *** APIs *** 
 
+        // For starting the thread.
+        //
         // Allowed to reuse the Thread instance if the underlying system thread fails for some reason.
         // Just ensure that you resupply the lambda representing the Thread execution context (start) along with 
         // the start object.
