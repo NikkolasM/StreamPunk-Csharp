@@ -25,30 +25,32 @@ namespace StreamPunk.Threading
         // Non-selected members are alloc'ed to hold -1 in some fashion.
 
         // will convert the pid into the affinity mask for a thread
-        public readonly int tid;
+        public readonly int? tid;
 
         // or you can use the affinity mask API 1-for-1.
-        public readonly int[] affinityMask;
+        public readonly int[]? affinityMask;
 
         public WindowsThread(int tid)
         {
             this.tid = tid;
-            this.affinityMask = new int[]{ -1 };
+            this.affinityMask = null;
         }
 
         public WindowsThread(int[] affinityMask)
         {
             this.affinityMask = affinityMask;
-            this.tid = -1;
+            this.tid = null;
         }
 
     }
     struct Thread<StartObj>
     {
         private System.Threading.Thread? SystemThread;
-        private readonly LinuxThread? LinuxThread;
-        private readonly WindowsThread? WindowsThread;
-        private readonly Action? ThreadPinningRoutine;
+
+        // These are public to simplify testing
+        public readonly LinuxThread? LinuxThread;
+        public readonly WindowsThread? WindowsThread;
+        public readonly Action? ThreadPinningRoutine;
 
         // *** CONSTRUCTORS ***
 
@@ -103,23 +105,38 @@ namespace StreamPunk.Threading
             WindowsThread? windowsThread = this.WindowsThread;
             Action? threadPinningRoutine = this.ThreadPinningRoutine;
 
-            this.SystemThread = new System.Threading.Thread(() => {
+            this.SystemThread = new System.Threading.Thread(() => { 
+                try
+                {
+                    // to make sure the VM doesn't move work onto different kernel threads, even though
+                    // we are pinning the kernel thread in the given scenario. 
+                    System.Threading.Thread.BeginThreadAffinity();  
 
-                if (linuxThread != null)
+                    if (linuxThread != null)
+                    {
+                        // routine for thread pinning on Linux
+                    }
+                    else if (windowsThread != null)
+                    {
+                        // routine for thread pinning on Windows
+                    }
+                    else if (threadPinningRoutine != null)
+                    {
+                        // executing the supplied threadPinningRoutine
+                    }
+                    else
+                    {
+                        throw new NoThreadPinningRoutineException("Failed to pin thread.");
+                    }
+
+                    start(obj);
+
+                } catch (Exception e)
                 {
-                    // routine for thread pinning on Linux
-                } else if (windowsThread!= null)
-                {
-                    // routine for thread pinning on Windows
-                } else if (threadPinningRoutine != null)
-                {
-                    // executing the supplied threadPinningRoutine
-                } else
-                {
-                    throw new NoThreadPinningRoutineException("Failed to pin thread.");
+                    System.Threading.Thread.EndThreadAffinity();
+
+                    throw new Exception(message: "Thread exception.", innerException: e);
                 }
-
-                    start(obj); 
             });
 
             this.SystemThread.Start();
