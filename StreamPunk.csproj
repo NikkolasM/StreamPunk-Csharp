@@ -7,4 +7,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Folder Include="EventLoop\" />
+    <Folder Include="Pipes\" />
+  </ItemGroup>
+
 </Project>
