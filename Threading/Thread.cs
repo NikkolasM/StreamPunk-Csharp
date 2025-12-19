@@ -10,89 +10,124 @@ namespace StreamPunk.Threading
     // will be for sched_setaffinity() in the C standard lib in linux
     struct LinuxThread
     {
-        public readonly int pid; 
+        public readonly int tid; 
 
-        public LinuxThread(int pid)
+        public LinuxThread(int tid)
         {
-            this.pid = pid;
+            this.tid = tid;
         }
     }
 
     // will be for SetThreadAffinityMask() in Win32
     struct WindowsThread
     {
-        // will convert the pid into the affinity mask for a thread
-        public readonly int pid;
+        // can only have either-or, not both vvv
+        // Non-selected members are alloc'ed to hold -1 in some fashion.
 
-        //
+        // will convert the pid into the affinity mask for a thread
+        public readonly int tid;
+
+        // or you can use the affinity mask API 1-for-1.
         public readonly int[] affinityMask;
 
-        public WindowsThread(int pid)
+        public WindowsThread(int tid)
         {
-            this.pid = pid;
+            this.tid = tid;
             this.affinityMask = new int[]{ -1 };
         }
 
         public WindowsThread(int[] affinityMask)
         {
             this.affinityMask = affinityMask;
-            this.pid = -1;
+            this.tid = -1;
         }
 
     }
-    struct Thread 
+    struct Thread<StartObj>
     {
-        private readonly System.Threading.Thread? SystemThread;
+        private System.Threading.Thread? SystemThread;
+        private readonly LinuxThread? LinuxThread;
+        private readonly WindowsThread? WindowsThread;
+        private readonly Action? ThreadPinningRoutine;
+
+        // *** CONSTRUCTORS ***
 
         // What you would use in prod if on a Linux-based system
-        public Thread(System.Threading.ThreadStart start, LinuxThread thread)
+        public Thread(LinuxThread thread)
         {
-            System.Threading.ThreadStart wrapper = () => {
-                // INSERT HERE: routine to execute a C module call that makes a syscall to pin the thread at the kernel level.
-
-                start();
-            };
-
-            this.SystemThread = new System.Threading.Thread(start: wrapper);
-        }
-
-        // Used for more advanced usecases on Linux-based systems + testing
-        // The action syscall will wrap the actual call to your .so of choice
-        // you still use the linux thread type interface though
-        public Thread(System.Threading.ThreadStart start, LinuxThread thread, Action<LinuxThread> syscall)
-        {
-            System.Threading.ThreadStart wrapper = () =>
-            {
-                syscall(thread);
-                start();
-            };
-
-            this.SystemThread = new System.Threading.Thread(start: wrapper);
+            this.LinuxThread = thread;
+            this.WindowsThread = null;
+            this.ThreadPinningRoutine = null;
         }
 
         // What you would use in prod if on a Windows-based system
-        public Thread(System.Threading.ThreadStart start, WindowsThread thread)
+        public Thread(WindowsThread thread)
         {
-            System.Threading.ThreadStart wrapper = () => {
-                // INSERT HERE: routine to execute a C module call that makes a syscall to pin the thread at the kernel level.
-
-                start();
-            };
-
-            this.SystemThread = new System.Threading.Thread(start: wrapper);
+            this.LinuxThread = null;
+            this.WindowsThread = thread;
+            this.ThreadPinningRoutine = null;
         }
 
         // Used for more advanced usecases on Windows-based systems + testing
         // The action syscall will wrap the actual call to your .dll of choice
-        public Thread(System.Threading.ThreadStart start, WindowsThread thread, Action<WindowsThread> syscall)
+        public Thread(Action threadPinningRoutine)
         {
-            System.Threading.ThreadStart wrapper = () =>
-            {
-                syscall(thread);
-                start();
-            };
-
-            this.SystemThread = new System.Threading.Thread(start: wrapper);
+            this.LinuxThread = null;
+            this.WindowsThread = null;
+            this.ThreadPinningRoutine = threadPinningRoutine;
         }
+
+        // *** APIs *** 
+
+        // Allowed to reuse the Thread instance if the underlying system thread fails for some reason.
+        // Just ensure that you resupply the lambda representing the Thread execution context (start) along with 
+        // the start object.
+        public void Start(StartObj obj, Action<StartObj> start)
+        {
+            // to ensure that start can only execute if the existing thread (if any) isn't running currently.
+            if (this.SystemThread != null)
+            {
+                ThreadState threadState = this.SystemThread.ThreadState;
+                bool isWaitSleepJoin = threadState == ThreadState.WaitSleepJoin;
+                bool isRunning = threadState == ThreadState.Running;
+
+                if (isRunning || isWaitSleepJoin)
+                {
+                    throw new ThreadStateException($"Invalid ThreadState for Start(). ThreadState={threadState}");
+                }
+            }
+
+            // to fix context issues in the lambda below. Only one of these values will be not-null, since 
+            // there are dedicated constructors for each above.
+            LinuxThread? linuxThread = this.LinuxThread;
+            WindowsThread? windowsThread = this.WindowsThread;
+            Action? threadPinningRoutine = this.ThreadPinningRoutine;
+
+            this.SystemThread = new System.Threading.Thread(() => {
+
+                if (linuxThread != null)
+                {
+                    // routine for thread pinning on Linux
+                } else if (windowsThread!= null)
+                {
+                    // routine for thread pinning on Windows
+                } else if (threadPinningRoutine != null)
+                {
+                    // executing the supplied threadPinningRoutine
+                } else
+                {
+                    throw new NoThreadPinningRoutineException("Failed to pin thread.");
+                }
+
+                    start(obj); 
+            });
+
+            this.SystemThread.Start();
+        }
+
+    }
+    class NoThreadPinningRoutineException : Exception { 
+        public NoThreadPinningRoutineException() { }
+        public NoThreadPinningRoutineException(string message) : base(message) { }
     }
 }
