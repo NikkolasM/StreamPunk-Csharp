@@ -10,8 +10,22 @@
   <ItemGroup>
     <Folder Include="EventLoop\" />
     <Folder Include="Pipes\" />
-    <Folder Include="Threading\ForeignFunctions\Linux\" />
-    <Folder Include="Threading\ForeignFunctions\Windows\" />
   </ItemGroup>
+
+	<ItemGroup>
+		<Content Include=".\Threading\ForeignFunctions\Windows\src\PinThreadWindows.dll">
+			<Link>runtimes\win-x64\native\PinThreadWindows.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Pack>true</Pack>
+			<PackagePath>runtimes\win-x64\native</PackagePath>
+		</Content>
+
+		<Content Include=".\Threading\ForeignFunctions\Linux\src\PinThreadLinux.so">
+			<Link>runtimes\linux-x64\native\PinThreadLinux.so</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Pack>true</Pack>
+			<PackagePath>runtimes\linux-x64\native</PackagePath>
+		</Content>
+	</ItemGroup>
 
 </Project>
