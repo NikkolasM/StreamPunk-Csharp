@@ -23,7 +23,7 @@ namespace StreamPunk.Threading
     {
         // imports only happen when you actually invoke the method so this is fine.
         [LibraryImport("PinThreadLinux.so")]
-        public static partial int PinThreadLinux(in ulong[] affinityMask, uint maskLength, out int tid);
+        public static partial int PinThread(in ulong[] affinityMask, uint maskLength, out int tid);
     }
 
     // Data structure to match the API of SetThreadAffinityMask() in win32
@@ -42,7 +42,7 @@ namespace StreamPunk.Threading
 
         // imports only happen when you actually invoke the method so this is fine.
         [LibraryImport("PinThreadWindows.dll")]
-        public static partial int PinThreadWindows(ulong affinityMask);
+        public static partial int PinThread(ulong affinityMask);
     }
 
     // Uses struct by design to minimize the GC mark-and-sweep fanout.
@@ -95,7 +95,7 @@ namespace StreamPunk.Threading
         {
             if (affinityMask.Length == 0) throw new AffinityMaskEmpty();
 
-            int outcomeCode = LinuxNative.PinThreadLinux(affinityMask, (uint)affinityMask.Length, out int threadId);
+            int outcomeCode = LinuxNative.PinThread(affinityMask, (uint)affinityMask.Length, out int threadId);
 
             // TODO: add error handling based on the returned code from the native lib call.
 
@@ -110,7 +110,7 @@ namespace StreamPunk.Threading
 
         private void PinThreadWindows(ulong affinityMask)
         {
-            int outcomeCode = WindowsNative.PinThreadWindows(affinityMask);
+            int outcomeCode = WindowsNative.PinThread(affinityMask);
 
             // add error handling based on the returned code from the native lib call.
         }
