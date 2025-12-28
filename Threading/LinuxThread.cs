@@ -5,16 +5,18 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace StreamPunk.Threading.Linux
 {
-    public partial struct Native
+    public partial class Native
     {
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
         // 
         [LibraryImport("PinThreadLinux.so")]
-        public static partial int PinThread(
+        public static partial int PinThreadUnsafe(
             in ulong[] suppliedAffinityMask,
             ulong suppliedMaskLength,
             out int tid,
@@ -25,10 +27,34 @@ namespace StreamPunk.Threading.Linux
             out ulong appliedMaskLength
             );
 
+        public static int PinThread(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask) 
+        {
+            if (affinityMask.Length <= 0) throw new ArgumentException("Supplied affinity mask needs atleast one element.");
+
+            bool hasAtleastOneMarkedCore = false;
+
+            foreach (ulong element in affinityMask) if (element > 0UL) hasAtleastOneMarkedCore = true;
+
+            if (!hasAtleastOneMarkedCore) throw new ArgumentException("Supplied affinity mask needs atleast one marked core.");
+
+            int outcomeCode = Native.PinThreadUnsafe(
+             suppliedAffinityMask: affinityMask,
+             suppliedMaskLength: (ulong)affinityMask.Length,
+             tid: out int id,
+             appliedAffinityMask: out ulong[] aam,
+             appliedMaskLength: out _ // because its just for a passed back property from the C so C# knows the length of 'appliedAffinityMask'
+             );
+
+            tid = id;
+            appliedAffinityMask = aam;
+
+            return outcomeCode;
+        }
+
         [LibraryImport("UnpinThreadLinux.so")]
-        public static partial int UnpinThread();
+        public static partial int UnpinThreadUnsafe();
     }
-    public struct Affinity
+    public class Affinity
     {
         // The pid (thread ID) will be fetched from within the execution context within the lib function being called
 
@@ -48,184 +74,231 @@ namespace StreamPunk.Threading.Linux
         // in tight loops i.e. spinlocks in 'Start()'
         private volatile bool isBootstrapped;
         private volatile bool hasFailed;
-        private volatile Exception? e;
 
         public BootstrapState()
         {
             this.isBootstrapped = false;
             this.hasFailed = false;
-            this.e = null;
         }
+
+        // encapsulation good, which can allow a WAL-like log for the CRUD going on here potentially
         public bool GetIsBootstrapped() { return this.isBootstrapped; }
         public void SetIsBootstrapped(bool isBootstrapped) { this.isBootstrapped = isBootstrapped; }
         public bool GetHasFailed() { return this.hasFailed; }
         public void SetHasFailed(bool hasFailed) { this.hasFailed = hasFailed; }
-        public Exception? GetException() { return this.e; }
-        public void SetException(Exception? e) { this.e = e; }
     }
 
-    public struct Thread<StartContext>
+    public class Thread<StartState>
     {
         public readonly Affinity affinity;
-        private int tid;
+        public readonly long timeoutMs;
 
-        private System.Threading.Thread? SystemThread;
-
-        public Thread(Affinity affinity)
+        // make these two volatile, because the Thread instance may be reused. 
+        private volatile int tid;
+        private volatile System.Threading.Thread? SystemThread;
+        public Thread(Affinity affinity, long timeoutMs = 500L)
         {
             this.affinity = affinity;
+            this.timeoutMs = timeoutMs;
             this.tid = 0;
-        }
+            this.SystemThread = null;
 
-        private void SetTid(int tid)
+        }
+        private System.Threading.Thread? GetThread()
         {
-            this.tid = tid;
+            return this.SystemThread;
         }
         public int GetTid()
         {
             return this.tid;
         }
-
-        private int PinThread()
+        private void SetTid(int tid)
         {
-            // take the affinity and run the native func using it.
-            // also write to update the tid.
+            this.tid = tid;
         }
-
-        private int UnpinThread()
+        public bool GetIsBackground()
         {
+            if (this.SystemThread == null) throw new ThreadNotFoundException();
 
+            return this.SystemThread.IsBackground;
         }
-
-        private System.Threading.Thread? GetThread()
+        public void SetIsBackground()
         {
-            return this.SystemThread;
+            if (this.SystemThread == null) throw new ThreadNotFoundException();
+
+            this.SystemThread.IsBackground = true;
         }
-
-        public int Start(StartContext context, Action<StartContext, System.Threading.Thread> action)
+        public int Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
         {
-            // The thread instance can be reused, but requires the current thread to not be running or blocked for some reason.
-            // Requires aborting the current thread using the yet-to-be-made 'Abort()' method. 
-            if (this.SystemThread != null)
+            try
             {
-                System.Threading.ThreadState threadState = this.SystemThread.ThreadState;
-                bool isWaitSleepJoin = threadState == System.Threading.ThreadState.WaitSleepJoin;
-                bool isRunning = threadState == System.Threading.ThreadState.Running;
-
-                if (isRunning || isWaitSleepJoin) throw new ThreadStateException($"Invalid ThreadState for Start(). ThreadState={threadState}");
-            }
-
-            Func<System.Threading.Thread?> getThread = this.GetThread;
-            Func<int> pinThread = this.PinThread;
-            Func<int> unpinThread = this.UnpinThread;
-            int tid = 0;
-
-            // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
-            BootstrapState bss = new BootstrapState();
-
-            this.SystemThread = new System.Threading.Thread(() =>
-            {
-                try
+                // The thread instance can be reused, but requires the current thread to not be running or blocked for some reason.
+                // Requires aborting the current thread using the yet-to-be-made 'Abort()' method. 
+                if (this.SystemThread != null)
                 {
-                    if (bss.GetHasFailed()) return;
+                    System.Threading.ThreadState threadState = this.SystemThread.ThreadState;
+                    bool isWaitSleepJoin = threadState == System.Threading.ThreadState.WaitSleepJoin;
+                    bool isRunning = threadState == System.Threading.ThreadState.Running;
 
-                    tid = pinThread();
-                    if (bss.GetHasFailed()) return;
+                    if (isRunning || isWaitSleepJoin) throw new ThreadStateException($"Invalid ThreadState for Start(). ThreadState={threadState}");
+                }
 
-                    System.Threading.Thread? currContextThread = getThread();
-                    if (bss.GetHasFailed()) return;
+                var self = this;
+                int tid = 0;
 
-                    if (currContextThread == null)
+                BootstrapState bss = new BootstrapState(); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
+
+                this.SystemThread = new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread? thread = self.GetThread();
+
+                    try
                     {
-                        if (bss.GetHasFailed()) return;
+                        if (bss.GetHasFailed() || ct.IsCancellationRequested) return; // for timeout and cancellation only
 
-                        bss.SetException(new FailedToGetThreadException(message: "currContextThread=null"));
-                        bss.SetHasFailed(true);
+                        if (thread == null) throw new FailedToGetThreadException(message: "currContextThread=null");
 
-                        return;
-                    }
+                        int pinThreadOutcomeCode = Native.PinThread(self.affinity.affinityMask, out tid, out ulong[] appliedAffinityMask);
 
-                    int pinThreadOutcomeCode = pinThread();
+                        if (pinThreadOutcomeCode < 0) throw new FailedToPinThreadException($"pinThreadOutcomeCode={pinThreadOutcomeCode}");
 
-                    if (pinThreadOutcomeCode < 0)
-                    {
-                        int unpinThreadOutcomeCode = unpinThread();
+                        if (bss.GetHasFailed() || ct.IsCancellationRequested)
+                        { 
+                            // for timeout only. If unpin doesn't work, then it should terminate the entire program.
 
-                        if (unpinThreadOutcomeCode < 0)
-                        {
+                            int unpinThreadOutcomeCode = Native.UnpinThreadUnsafe();
 
+                            if (unpinThreadOutcomeCode < 0) throw new FailedToUnpinThreadException($"unpinThreadOutcomecode={unpinThreadOutcomeCode}");
+
+                            return;
                         }
-                        else
-                        {
-                            
-                        }
+
+                        self.SetTid(tid);
+                        bss.SetIsBootstrapped(true);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new ThreadBootstrapException(null, e);
                     }
 
-                    bss.SetIsBootstrapped(true);
-                    if (bss.GetHasFailed()) return;
+                    try
+                    {
+                        executionContext(state, thread, ct);
+                    }
+                    catch (Exception e)
+                    {
+                        int unpinThreadOutcomeCode = Native.UnpinThreadUnsafe();
 
-                    action(context, currContextThread);
-                }
-                catch (Exception e)
+                        if (unpinThreadOutcomeCode < 0) throw new FailedToUnpinThreadException($"unpinThreadOutcomecode={unpinThreadOutcomeCode}");
+
+                        throw new ThreadRuntimeException(null, e);
+                    }
+                });
+
+                if (ct.IsCancellationRequested) return 0;
+
+                // need to make it a background thread, since its a foreground thread by default. 
+                // this will ensure that exceptions via timeouts properly shut down the entire process, rather than having a thread 
+                // keep things hanging. The caller can decide to change the thread back to being a foreground thread rather than a background thread
+                // if this called method returns without exceptions.
+                this.SystemThread.IsBackground = true;
+                this.SystemThread.Start();
+
+                // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
+                // instant an accurate timeouts. The kernel underneath should already schedule out the underlying thread so that its not locked on just
+                // this CPU bound task here.
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+
+                while (sw.ElapsedMilliseconds <= this.timeoutMs)
                 {
-                    bss.SetException(new ThreadRuntimeException(message: "Thread runtime exception.", innerException: e));
-                    bss.SetHasFailed(true);
+                    if (ct.IsCancellationRequested) return 0;
+
+                    if (bss.GetIsBootstrapped()) return tid > 0 ? tid : throw new ThreadBootstrapException(message: $"Invalid Linux Thread ID. tid={tid}");
                 }
-            });
 
-            this.SystemThread.Start();
+                bss.SetHasFailed(true);
 
-            // use a spin lock to check bootstrap state.
-            // implement a simple timeout mechanism rather than blocking using existing abstraction.
-            // Doing all this so that the calling thread isn't preempted. using async/await will otherwise do that.
-            Stopwatch sw = new Stopwatch();
-            sw.Start();
-
-            while (sw.ElapsedMilliseconds <= 3000L)
+                throw new ThreadBootstrapException(message: "Bootstrap timed out.");
+            } catch (Exception e)
             {
-                bool hasFailed = bss.GetHasFailed();
-
-                if (hasFailed)
-                {
-                    throw new ThreadBootstrapFailedException(message: null, innerException: bss.GetException());
-                }
-
-                bool isBootstrapped = bss.GetIsBootstrapped();
-
-                if (isBootstrapped)
-                {
-                    if (tid <= 0)
-                    {
-                        throw new InvalidThreadIdException(message: $"Invalid Linux Thread ID. tid={tid}");
-                    }
-                    else
-                    {
-                        return tid;
-                    }
-                }
+                throw new StartException(null, e);
             }
+        }
 
-            bss.SetHasFailed(true);
+        public Task<int> StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
+        {
+            var self = this;
 
-            throw new ThreadBootstrapFailedException(message: "Bootstrap timed out.");
+            Task<int> task = new Task<int>(() => {
+                    try
+                    {
+                        return self.Start(state: state, executionContext: executionContext, ct: ct);
+                    }
+                    catch (Exception e) 
+                    {
+                        throw new StartAsyncException(null, e);
+                    }
+                }
+            );
+
+            task.Start();
+
+            return task;
         }
     }
     class TrySetResultFailedException : Exception
     {
         public TrySetResultFailedException() { }
         public TrySetResultFailedException(string message) : base(message) { }
-        public TrySetResultFailedException(string? message, Exception? innerException) { }
+        public TrySetResultFailedException(string? message, Exception? innerException) : base(message, innerException) { }
     }
-    class InvalidThreadIdException : Exception
+    class ThreadBootstrapException : Exception
     {
-        public InvalidThreadIdException() { }
-        public InvalidThreadIdException(string message) : base(message) { }
-        public InvalidThreadIdException(string? message, Exception? innerException) : base(message, innerException) { }
+        public ThreadBootstrapException() { }
+        public ThreadBootstrapException(string message) : base(message) { }
+        public ThreadBootstrapException(string? message, Exception? innerException) : base(message, innerException) { }
     }
-    class ThreadBootstrapFailedException : Exception
+
+    class ThreadRuntimeException : Exception
     {
-        public ThreadBootstrapFailedException() { }
-        public ThreadBootstrapFailedException(string message) : base(message) { }
-        public ThreadBootstrapFailedException(string? message, Exception? innerException) : base(message, innerException) { }
+        public ThreadRuntimeException() { }
+        public ThreadRuntimeException(string message) : base(message) { }
+        public ThreadRuntimeException(string? message, Exception? innerException) : base(message, innerException) { }
     }
+
+    class ThreadNotFoundException : Exception {
+        public ThreadNotFoundException() { }
+        public ThreadNotFoundException(string message) : base(message) { }
+        public ThreadNotFoundException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
+    class FailedToPinThreadException : Exception
+    {
+        public FailedToPinThreadException() { }
+        public FailedToPinThreadException(string message) : base(message) { }
+        public FailedToPinThreadException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
+    class FailedToUnpinThreadException : Exception
+    {
+        public FailedToUnpinThreadException() { }
+        public FailedToUnpinThreadException(string message) : base(message) { }
+        public FailedToUnpinThreadException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
+    class StartAsyncException : Exception
+    {
+        public StartAsyncException() { }
+        public StartAsyncException(string message) : base(message) { }
+        public StartAsyncException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
+    class StartException : Exception
+    {
+        public StartException() { }
+        public StartException(string message) : base(message) { }
+        public StartException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
 }

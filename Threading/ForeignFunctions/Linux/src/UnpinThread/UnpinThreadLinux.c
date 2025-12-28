@@ -12,7 +12,7 @@ enum OutcomeCode {
 	Success = INT32_C(0)
 };
 
-int32_t UnpinThread() {
+int32_t UnpinThreadUnsafe() {
 	int64_t numOfCpus = sysconf(_SC_NPROCESSORS_CONF);
 
 	if (numOfCpus <= INT64_C(0)) return FailedToGetRealNumCpus;

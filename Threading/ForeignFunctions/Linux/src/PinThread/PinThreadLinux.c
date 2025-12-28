@@ -23,7 +23,7 @@ enum OutcomeCode {
     Success = INT32_C(0)
 };
 
-int32_t PinThread(
+int32_t PinThreadUnsafe(
     uint64_t *suppliedAffinityMask,
     uint64_t maskLength,
     int32_t *tid,
@@ -116,7 +116,7 @@ int32_t PinThread(
     // The num of indexes on realNumOfCpus matches that of the total bytes - 1 
     // the bitmask in cpu_set_t iterates from left to right where each index is a byte.
     // However, per byte, the CPU numbering is from right to left along the bits i.e. byte at i=0, the furthest right bit in that byte is CPU 0
-    for (uint64_t i = UINT64_C(0); i < numOfBytes - UINT64_C(1); i++) {
+    for (uint64_t i = UINT64_C(0); i < numOfBytes; i++) {
         uint8_t currByte = ((uint8_t*)realcpuset)[i];
 
         // 7 to 0 because 8 bits per byte using 0 indexing.
@@ -131,6 +131,8 @@ int32_t PinThread(
             comparisonMask[currIndexOfComparisonMask] = ((comparisonMask[currIndexOfComparisonMask] << UINT64_C(1)) | ((uint64_t)extractedBit));
         }
     }
+
+    CPU_FREE(realcpuset);
 
     // save the mem address of comparisonMask to the first level derefed value of 
     // appliedAffinityMask. Because comparisonMask evaluates to an arr, which is represented
