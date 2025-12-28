@@ -230,7 +230,7 @@ namespace StreamPunk.Threading.Linux
         {
             var self = this;
 
-            Task<int> task = new Task<int>(() => {
+            return Task.Run<int>(() => {
                     try
                     {
                         return self.Start(state: state, executionContext: executionContext, ct: ct);
@@ -241,10 +241,6 @@ namespace StreamPunk.Threading.Linux
                     }
                 }
             );
-
-            task.Start();
-
-            return task;
         }
     }
     class TrySetResultFailedException : Exception
