@@ -217,7 +217,7 @@ namespace StreamPunk.Threading.Linux
 
                 this.SystemThread.IsBackground = true;
             }
-            public int Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
+            public void Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
             {
                 try
                 {
@@ -244,7 +244,7 @@ namespace StreamPunk.Threading.Linux
                         {
                             if (bss.GetHasFailed() || ct.IsCancellationRequested) return;
 
-                            if (thread == null) throw new FailedToGetThreadException(message: "currContextThread=null");
+                            if (thread == null) throw new FailedToGetThreadException("thread=null");
 
                             Native.PinThread(self.affinity.affinityMask, out tid, out ulong[] _);
 
@@ -274,7 +274,7 @@ namespace StreamPunk.Threading.Linux
                         }
                     });
 
-                    if (ct.IsCancellationRequested) return 0;
+                    if (ct.IsCancellationRequested) return;
 
                     // need to make it a background thread, since its a foreground thread by default. 
                     // this will ensure that exceptions via timeouts properly shut down the entire process, rather than having a thread 
@@ -287,21 +287,14 @@ namespace StreamPunk.Threading.Linux
                     // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
                     // not be updated on the volatile members as consistently. The kernel underneath should schedule out the underlying thread so that
                     // its not locked on just this CPU bound task here. Don't try to guess in the C# what the kernel wants, just let the kernel reschedule
-                    // the underlying thread, but not the CLR.
+                    // the underlying thread, but not the CLR. The CFS is your friend.
                     Stopwatch sw = new Stopwatch();
                     sw.Start();
 
-                    while (sw.ElapsedMilliseconds <= this.timeoutMs)
-                    {
-                        if (ct.IsCancellationRequested) return 0;
-
-                        int tid = this.GetTid();
-
-                        if (bss.GetIsBootstrapped()) return tid > 0 ? tid : throw new InvalidTidException($"tid={tid}");
-                    }
-
+                    while (sw.ElapsedMilliseconds < this.timeoutMs) if (ct.IsCancellationRequested || bss.GetIsBootstrapped()) return;
+                    
                     bss.SetHasFailed(true);
-                    throw new ThreadBootstrapException(message: "Timed out.");
+                    throw new ThreadBootstrapException("Timed out.");
 
                 }
                 catch (Exception e)
@@ -310,15 +303,15 @@ namespace StreamPunk.Threading.Linux
                 }
             }
 
-            public Task<int> StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
+            public Task StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
             {
                 var self = this;
 
-                return Task.Run<int>(() =>
+                return Task.Run(() =>
                 {
                     try
                     {
-                        return self.Start(state: state, executionContext: executionContext, ct: ct);
+                        self.Start(state: state, executionContext: executionContext, ct: ct);
                     }
                     catch (Exception e)
                     {
@@ -335,20 +328,12 @@ namespace StreamPunk.Threading.Linux
             public NativeCallException(string message) : base(message) { }
             public NativeCallException(string? message, Exception? innerException) : base(message, innerException) { }
         }
-        class TrySetResultFailedException : Exception
-        {
-            public TrySetResultFailedException() { }
-            public TrySetResultFailedException(string message) : base(message) { }
-            public TrySetResultFailedException(string? message, Exception? innerException) : base(message, innerException) { }
-        }
-
         class InvalidTidException : Exception
         {
             public InvalidTidException() { }
             public InvalidTidException(string message) : base(message) { }
             public InvalidTidException(string? message, Exception? innerException) : base(message, innerException) { }
         }
-
         class AppliedMaskMismatchException : Exception
         {
             public AppliedMaskMismatchException() { }
@@ -376,21 +361,6 @@ namespace StreamPunk.Threading.Linux
             public ThreadNotFoundException(string message) : base(message) { }
             public ThreadNotFoundException(string? message, Exception? innerException) : base(message, innerException) { }
         }
-
-        class FailedToPinThreadException : Exception
-        {
-            public FailedToPinThreadException() { }
-            public FailedToPinThreadException(string message) : base(message) { }
-            public FailedToPinThreadException(string? message, Exception? innerException) : base(message, innerException) { }
-        }
-
-        class FailedToUnpinThreadException : Exception
-        {
-            public FailedToUnpinThreadException() { }
-            public FailedToUnpinThreadException(string message) : base(message) { }
-            public FailedToUnpinThreadException(string? message, Exception? innerException) : base(message, innerException) { }
-        }
-
         class StartAsyncException : Exception
         {
             public StartAsyncException() { }
