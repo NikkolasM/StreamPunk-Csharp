@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # clear existing files
-if [ -e ./A.so ]; then
+if [ -e ./ResetAffinityLinux.so ]; then
     rm ./ResetAffinityLinux.so
     echo "prior .so file deleted"
   else
