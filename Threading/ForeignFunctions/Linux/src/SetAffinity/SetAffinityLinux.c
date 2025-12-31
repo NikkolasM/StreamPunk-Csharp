@@ -23,22 +23,28 @@ enum OutcomeCode {
     Success = INT32_C(0)
 };
 
-int32_t PinThreadUnsafe(
+int32_t SetAffinityUnsafe(
     uint64_t *suppliedAffinityMask,
     uint64_t maskLength,
     int32_t *tid,
     uint64_t **appliedAffinityMask, // outer pointer is the referece in C#, inner pointer is the actual array which is fundamentally a pointer to index 0 of the array on that given data type.
     uint64_t *appliedMaskLength
 ) {
-    // check to ensure that real pointers are supplied that can have their values set, also check to ensure that maskLength isn't 0.
+    // check to ensure that there are real pointers to set values to.
+    // also check to ensure that maskLength isn't 0.
     if (suppliedAffinityMask == NULL || maskLength == UINT64_C(0) || tid == NULL || appliedAffinityMask == NULL || appliedMaskLength == NULL) return InvalidArgInitialization;
+
+    // Zero out the args that represent buffs the caller can access. 
+    // Compatible for .NET 10, but zeroing out outbound buffs is good practice regardless.
+    *tid = INT32_C(0);
+    *appliedAffinityMask = NULL;
+    *appliedMaskLength = UINT64_C(0);
 
     *tid = (int32_t)gettid(); // memory for pointer already allocated, just need to save the thread ID to the value at the address.
 
     uint64_t suppliedNumOfCpus = maskLength * UINT64_C(64); // because 64 bits per long
 
     cpu_set_t* cpuset = CPU_ALLOC(suppliedNumOfCpus);
-    if (cpuset == NULL) return FailedToAllocCpuSet;
 
     size_t size = CPU_ALLOC_SIZE(suppliedNumOfCpus);
     CPU_ZERO_S(size, cpuset);

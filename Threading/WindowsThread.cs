@@ -10,7 +10,7 @@ namespace StreamPunk.Threading.Windows
     {
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
-        [LibraryImport("PinThreadLinux.so")]
+        [LibraryImport("PinThreadWindows.dll")]
         public static partial int PinThreadUnsafe(
             in ulong[] suppliedAffinityMask,
             ulong suppliedMaskLength,

@@ -12,7 +12,7 @@ enum OutcomeCode {
 	Success = INT32_C(0)
 };
 
-int32_t UnpinThreadUnsafe() {
+int32_t ResetAffinityUnsafe() {
 	int64_t numOfCpus = sysconf(_SC_NPROCESSORS_CONF);
 
 	if (numOfCpus <= INT64_C(0)) return FailedToGetRealNumCpus;
@@ -23,8 +23,8 @@ int32_t UnpinThreadUnsafe() {
 	size_t size = CPU_ALLOC_SIZE(numOfCpus);
 	CPU_ZERO_S(size, cpuset);
 
-	// safe to cast to unsigned, because the prior check ensures the
-	// value 'numOfCpus' isn't negative.
+	// safe to cast to unsigned, because the prior <= 0 check ensures the value 'numOfCpus' isn't negative.
+	// Most-significant-bit is what's used to define whether a signed integer is positive or negative.
 	for (uint64_t i = UINT64_C(0); i < (uint64_t)numOfCpus; i++) {
 		CPU_SET_S(i, size, cpuset);
 	}

@@ -10,7 +10,7 @@ namespace StreamPunk.Threading.Linux
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
         [LibraryImport("PinThreadLinux.so")]
-        public static partial int PinThreadUnsafe(
+        public static partial int SetAffinityUnsafe(
             in ulong[] suppliedAffinityMask,
             ulong suppliedMaskLength,
             out int tid,
@@ -19,7 +19,7 @@ namespace StreamPunk.Threading.Linux
             out ulong appliedMaskLength
             );
 
-        public static void PinThread(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask)
+        public static void SetAffinity(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask)
         {
             // Do an argument check
             if (affinityMask.Length <= 0) throw new ArgumentException("Supplied affinity mask needs atleast one element.");
@@ -31,7 +31,7 @@ namespace StreamPunk.Threading.Linux
             if (!hasAtleastOneMarkedCore) throw new ArgumentException("Supplied affinity mask needs atleast one marked core.");
 
             // Make the native call to pin teh thread
-            int outcomeCode = Native.PinThreadUnsafe(
+            int outcomeCode = Native.SetAffinityUnsafe(
              suppliedAffinityMask: affinityMask,
              suppliedMaskLength: (ulong)affinityMask.Length,
              tid: out int id,
@@ -102,14 +102,14 @@ namespace StreamPunk.Threading.Linux
             appliedAffinityMask = aam;
         }
 
-        [LibraryImport("UnpinThreadLinux.so")]
-        public static partial int UnpinThreadUnsafe();
+        [LibraryImport("UnpinThreadWindows.dll")]
+        public static partial int ResetAffinityUnsafe();
 
         // Idempotent; can be invoked multiple times safely for the calling thread.
         // Just sets the given thread affinity to 1 for every physically available CPU.
-        public static void UnpinThread()
+        public static void ResetAffinity()
         {
-            int outcomeCode = Native.UnpinThreadUnsafe();
+            int outcomeCode = Native.ResetAffinityUnsafe();
 
             // outcomeCode = 0 means success, anything else means something unexpected happened
             if (outcomeCode < 0)
@@ -239,11 +239,11 @@ namespace StreamPunk.Threading.Linux
 
                         if (thread == null) throw new FailedToGetThreadException("thread=null");
 
-                        Native.PinThread(self.affinity.affinityMask, out int tid, out ulong[] _);
+                        Native.SetAffinity(self.affinity.affinityMask, out int tid, out ulong[] _);
 
                         if (bss.hasFailed || ct.IsCancellationRequested)
                         {
-                            Native.UnpinThread();
+                            Native.ResetAffinity();
                             return;
                         }
 
@@ -252,7 +252,7 @@ namespace StreamPunk.Threading.Linux
                     }
                     catch (Exception e)
                     {
-                        Native.UnpinThread();
+                        Native.ResetAffinity();
                         throw new ThreadBootstrapException(null, e);
                     }
 
@@ -262,7 +262,7 @@ namespace StreamPunk.Threading.Linux
                     }
                     catch (Exception e)
                     {
-                        Native.UnpinThread();
+                        Native.ResetAffinity();
                         throw new ThreadRuntimeException(null, e);
                     }
                 });

@@ -8,7 +8,7 @@ enum OutcomeCode {
 };
 
 __declspec(dllexport)
-int32_t UnpinThread() {
+int32_t ResetAffinityUnsafe() {
 	// sets a long to some negative number then casts it as a ptr. 
 	// That ptr address doesn't eval to anything, the address is interpreted raw.
 	// ensure the value of this address equates to -2.
@@ -23,9 +23,9 @@ int32_t UnpinThread() {
 	uint64_t priorMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
 
 	if (priorMask == UINT64_C(0)) {
-		uint32_t errorCode = (uint32_t)GetLastError();
+		// potentially do something with the error code in the future, but for now, this works.
 
-		// potentially do something with the error code in the future
+		uint32_t errorCode = (uint32_t)GetLastError();
 
 		return SetThreadAffinityMaskFailed;
 	}

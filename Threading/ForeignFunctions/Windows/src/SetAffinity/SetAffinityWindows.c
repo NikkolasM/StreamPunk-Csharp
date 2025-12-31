@@ -8,7 +8,10 @@ enum OutcomeCode {
 };
 
 __declspec(dllexport)
-int32_t PinThread(uint64_t affinityMask) {
+int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffinitymask) {
+
+	if (suppliedAffinityMask <= UINT64_C(0) || appliedAffinitymask == NULL)
+
 	// sets a long to some negative number then casts it as a ptr. 
 	// That ptr address doesn't eval to anything, the address is interpreted raw.
 	// ensure the value of this address equates to -2.
@@ -19,14 +22,19 @@ int32_t PinThread(uint64_t affinityMask) {
 	// DWORD_PTR ISNT ACTUALLY A POINTER. WEIRD MICROSOFT STUFF.
 	// Will either return the prior mask as a ulong 64bit, or return 0 which signals an error.
 	uint64_t priorMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
+	uint64_t appliedMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
 
 	if (priorMask == UINT64_C(0)) {
-		uint32_t errorCode = (uint32_t)GetLastError();
+		// potentially do something with the error code in the future, but for now, this works.
 
-		// potentially do something with the error code in the future
+		uint32_t errorCode = (uint32_t)GetLastError();
 
 		return SetThreadAffinityMaskFailed;
 	}
+
+	if uint64_
+
+	*appliedAffinitymask = appliedMask; // copy the current applied mask into the already allocated ptr to pass back to C#
 
 	return Success;
 }
