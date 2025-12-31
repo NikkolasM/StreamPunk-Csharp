@@ -4,6 +4,7 @@
 enum OutcomeCode {
 	FailedToGetHandle = INT32_C(-1),
 	SetThreadAffinityMaskFailed = INT32_C(-2),
+	AppliedMaskDoesNotMatch = INT32_C(-3),
 	Success = INT32_C(0)
 };
 
@@ -16,19 +17,21 @@ int32_t ResetAffinityUnsafe() {
 
 	if (((int64_t)currThreadHandle) != INT64_C(-2)) return FailedToGetHandle;
 
-	uint64_t affinityMask = UINT64_C(0xFFFFFFFFFFFFFFFF); // all bits set to 1
+	uint64_t affinityMask = 0xFFFFFFFFFFFFFFFF; // all bits set to 1
 
 	// DWORD_PTR ISNT ACTUALLY A POINTER. WEIRD MICROSOFT STUFF.
 	// Will either return the prior mask as a ulong 64bit, or return 0 which signals an error.
 	uint64_t priorMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
+	uint64_t appliedMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
 
-	if (priorMask == UINT64_C(0)) {
+	if (priorMask == UINT64_C(0) || appliedMask == UINT64_C(0)) {
 		// potentially do something with the error code in the future, but for now, this works.
-
 		uint32_t errorCode = (uint32_t)GetLastError();
 
 		return SetThreadAffinityMaskFailed;
 	}
 
+	if (appliedMask != affinityMask) return AppliedMaskDoesNotMatch;
+	
 	return Success;
 }

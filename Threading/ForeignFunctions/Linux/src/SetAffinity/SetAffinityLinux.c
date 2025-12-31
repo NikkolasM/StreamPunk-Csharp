@@ -71,49 +71,44 @@ int32_t SetAffinityUnsafe(
 
                     // ensures whatever was computed as the real bit position can actually be supplied 
                     // safely to CPU_SET_S(), since the CPU argument takes a signed 32bit int.
-                    if (realBitPosition > INT_MAX) return RealBitPositionTooLarge;
+                    if (realBitPosition > (uint64_t)INT32_MAX) return RealBitPositionTooLarge;
 
-                    CPU_SET_S((int32_t)realBitPosition, size, cpuset);
+                    CPU_SET_S(INT32_C(realBitPosition), size, cpuset);
                 }
         }
     }
 
     int32_t setAffinityOutcomeCode = (int32_t)sched_setaffinity(INT32_C(0), size, cpuset); // pid=0 means the current executing thread.
-
     CPU_FREE(cpuset);
 
     if (setAffinityOutcomeCode < INT32_C(0)) return FailedToSetAffinity;
 
-    // ***NOW GET THE AFFINITY FROM THE KERNEL TO ENSURE THE UPDATED AFFINITY MATCHES WHAT WAS SUPPLIED***
+    // ***NOW GET THE AFFINITY FROM THE KERNEL TO ENSURE THE UPDATED AFFINITY MATCHES 
 
-    // essentially go through a similar process as before, but now you define the mask based on the number of 
-    // real CPUs available, getting the affinity, and then converting the cpu_set_t bitmask back to the specific
-    // little endian style of this function's interface and passing it back out to the calling C#.
+    int64_t realNumOfCpus = (int64_t)sysconf(_SC_NPROCESSORS_CONF);
+    if (realNumOfCpus <= INT64_C(0)) return FailedToGetRealNumCpus;
+    if (realNumOfCpus > (int64_t)INT32_MAX) return TooManyCpus; // needs to fit since it will be passed to CPU_ALLOC, which expects a 32bit signed int.
 
-    int64_t realNumOfCpus = (int64_t)sysconf(_SC_NPROCESSORS_CONF); // Not standard POSIX, but it works
-    if (realNumOfCpus < INT64_C(0)) return FailedToGetRealNumCpus;
-
-    cpu_set_t* realcpuset = CPU_ALLOC(realNumOfCpus);
+    cpu_set_t* realcpuset = CPU_ALLOC((int32_t)realNumOfCpus);
     if (realcpuset == NULL) return FailedToAllocRealCpuSet;
 
-    size_t realSize = CPU_ALLOC_SIZE(UINT64_C(realNumOfCpus)); // expects an unsigned long 64bit, so type casting a positive signed long to unsigned long 64bit is safe
+    size_t realSize = CPU_ALLOC_SIZE((int32_t)realNumOfCpus); // expects an unsigned long 64bit, so type casting a positive signed long to unsigned long 64bit is safe
     CPU_ZERO_S(realSize, realcpuset);
 
-    int32_t getAffinityOutcomeCode = sched_getaffinity(INT32_C(0), realSize, realcpuset);
-
+    int32_t getAffinityOutcomeCode = (int32_t)(sched_getaffinity(INT32_C(0), realSize, realcpuset));
     if (getAffinityOutcomeCode < INT32_C(0)) {
         CPU_FREE(realcpuset);
         return FailedToGetAffinity;
     }
 
-    // adds 64 bits to the num of CPUs to move forward one bucket, 
-    // then divides by 64 which applies what's essentially a Math.floor() type division. Returns how many unsigned longs there are
-    // Multiply by 64 to get the number of total bits
-    // Divide by 8 to get the number of total bytes
-    uint64_t numOfLongs = ((realNumOfCpus + UINT64_C(64)) / UINT64_C(64));
-    uint64_t numOfBytes = (numOfLongs * UINT64_C(64)) / UINT64_C(8);
-    uint64_t* comparisonMask = (uint64_t*)calloc(numOfLongs, sizeof(uint64_t));
+    // adds 64 bits to the num of CPUs to move forward one bucket,then divides by 64 which applies what's essentially a division + Math.floor().
+    int64_t numOfLongs = (realNumOfCpus + INT64_C(64)) / INT64_C(64);
 
+    // Multiply by 64 to get the number of total bits. Divide by 8 to get the number of total bytes
+    // safe to cast numOfLongs to uint64, since numOfLongs should always be positive.
+    uint64_t numOfBytes = (((uint64_t)numOfLongs) * UINT64_C(64)) / UINT64_C(8);
+
+    uint64_t* comparisonMask = (uint64_t*)calloc(numOfLongs, sizeof(uint64_t));
     if (comparisonMask == NULL) {
         CPU_FREE(realcpuset);
         return FailedToAllocComparisonMask;
@@ -132,9 +127,9 @@ int32_t SetAffinityUnsafe(
 
             // Derive the equivalent index in the comparison mask this iteration is in
             // iterate right to left. (i + 1 byte) / 8 where dividing by 8 is to bucket bytes to 64 bit longs.
-            uint64_t currIndexOfComparisonMask = numOfLongs - ((i + UINT64_C(8)) / UINT64_C(8)); 
+            uint64_t currIndexOfComparisonMask = ((uint64_t)numOfLongs) - ((i + UINT64_C(8)) / UINT64_C(8));
 
-            comparisonMask[currIndexOfComparisonMask] = ((comparisonMask[currIndexOfComparisonMask] << UINT64_C(1)) | ((uint64_t)extractedBit));
+            comparisonMask[currIndexOfComparisonMask] = ((comparisonMask[currIndexOfComparisonMask] << UINT64_C(1)) | ((uint64_t)(extractedBit)));
         }
     }
 

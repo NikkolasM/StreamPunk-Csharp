@@ -9,7 +9,7 @@ namespace StreamPunk.Threading.Linux
     {
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
-        [LibraryImport("PinThreadLinux.so")]
+        [LibraryImport("SetAffinityLinux.so")]
         public static partial int SetAffinityUnsafe(
             in ulong[] suppliedAffinityMask,
             ulong suppliedMaskLength,
@@ -21,7 +21,7 @@ namespace StreamPunk.Threading.Linux
 
         public static void SetAffinity(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask)
         {
-            // Do an argument check
+            // Check the supplied args
             if (affinityMask.Length <= 0) throw new ArgumentException("Supplied affinity mask needs atleast one element.");
 
             bool hasAtleastOneMarkedCore = false;
@@ -30,7 +30,7 @@ namespace StreamPunk.Threading.Linux
 
             if (!hasAtleastOneMarkedCore) throw new ArgumentException("Supplied affinity mask needs atleast one marked core.");
 
-            // Make the native call to pin teh thread
+            // Once the args are validated, make the native call to pin the thread
             int outcomeCode = Native.SetAffinityUnsafe(
              suppliedAffinityMask: affinityMask,
              suppliedMaskLength: (ulong)affinityMask.Length,
@@ -42,38 +42,18 @@ namespace StreamPunk.Threading.Linux
             // outcomeCode = 0 means success, anything else means something unexpected happened
             if (outcomeCode < 0)
             {
-                string message;
-
-                switch (outcomeCode)
+                string message = outcomeCode switch
                 {
-                    case -1:
-                        message = "Invalid arg initialization.";
-                        break;
-                    case -2:
-                        message = "Failed to allocate cpu set.";
-                        break;
-                    case -3:
-                        message = "Real bit position too large.";
-                        break;
-                    case -4:
-                        message = "Failed to set affinity.";
-                        break;
-                    case -5:
-                        message = "Failed to get real number of cpus.";
-                        break;
-                    case -6:
-                        message = "Failed to allocate real cpu set.";
-                        break;
-                    case -7:
-                        message = "Failed to get affinity";
-                        break;
-                    case -8:
-                        message = "Failed to allocate comparison mask";
-                        break;
-                    default:
-                        message = "Unknown error.";
-                        break;
-                }
+                    -1 => "Invalid arg initialization.",
+                    -2 => "Failed to allocate cpu set.",
+                    -3 => "Real bit position too large.",
+                    -4 => "Failed to set affinity.",
+                    -5 => "Failed to get real number of cpus.",
+                    -6 => "Failed to allocate real cpu set.",
+                    -7 => "Failed to get affinity",
+                    -8 => "Failed to allocate comparison mask",
+                    _ => "Unknown error.",
+                };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
 
@@ -102,35 +82,34 @@ namespace StreamPunk.Threading.Linux
             appliedAffinityMask = aam;
         }
 
-        [LibraryImport("UnpinThreadWindows.dll")]
-        public static partial int ResetAffinityUnsafe();
+        [LibraryImport("ResetAffinityLinux.so")]
+        public static partial int ResetAffinityUnsafe(
+            out int tid,
+            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] // For passing an array on the heap allocated in the C back to the CLR safely. CLR needs to know the size of the arr. This is how. 
+            out ulong[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
+            out ulong appliedMaskLength
+            );
 
         // Idempotent; can be invoked multiple times safely for the calling thread.
         // Just sets the given thread affinity to 1 for every physically available CPU.
         public static void ResetAffinity()
         {
-            int outcomeCode = Native.ResetAffinityUnsafe();
+            int outcomeCode = Native.ResetAffinityUnsafe(
+                tid: out int id,
+                appliedAffinityMask: out ulong[] aam,
+                appliedMaskLength: out ulong _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
+                );
 
             // outcomeCode = 0 means success, anything else means something unexpected happened
             if (outcomeCode < 0)
             {
-                string message;
-
-                switch (outcomeCode)
+                string message = outcomeCode switch
                 {
-                    case -1:
-                        message = "Failed to get real number of cpus.";
-                        break;
-                    case -2:
-                        message = "Failed to allocate cpu set.";
-                        break;
-                    case -3:
-                        message = "Failed to set affinity.";
-                        break;
-                    default:
-                        message = "Unknown error.";
-                        break;
-                }
+                    -1 => "Failed to get real number of cpus.",
+                    -2 => "Failed to allocate cpu set.",
+                    -3 => "Failed to set affinity.",
+                    _ => "Unknown error.",
+                };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
             }
@@ -147,7 +126,7 @@ namespace StreamPunk.Threading.Linux
     {
         // use volatile keyword so that access to the class instance isn't cached by the VM in the tight loops in 'Start()'
         public volatile bool isBootstrapped;
-        public  volatile bool hasFailed;
+        public volatile bool hasFailed;
 
         public BootstrapState()
         {
