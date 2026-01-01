@@ -2,16 +2,18 @@
 #include <stdint.h> // you have to use non-legacy MinGW for your toolchain.
 
 enum OutcomeCode {
-	FailedToGetHandle = INT32_C(-1),
-	SetThreadAffinityMaskFailed = INT32_C(-2),
-	AppliedMaskDoesNotMatch = INT32_C(-3),
+	InvalidArgInitialization = INT32_C(-1),
+	FailedToGetHandle = INT32_C(-2),
+	SetThreadAffinityMaskFailed = INT32_C(-3),
+	AppliedMaskDoesNotMatch = INT32_C(-4),
 	Success = INT32_C(0)
 };
 
 __declspec(dllexport)
-int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffinitymask) {
+int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffinityMask) {
+	if (suppliedAffinityMask <= UINT64_C(0) || appliedAffinityMask == NULL) return InvalidArgInitialization;
 
-	if (suppliedAffinityMask <= UINT64_C(0) || appliedAffinitymask == NULL)
+	*appliedAffinityMask = UINT64_C(0); // zero out for good practice
 
 	// sets a long to some negative number then casts it as a ptr. 
 	// That ptr address doesn't eval to anything, the address is interpreted raw.
@@ -33,7 +35,7 @@ int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffini
 		return SetThreadAffinityMaskFailed;
 	}
 
-	*appliedAffinitymask = appliedMask; // copy the current applied mask into the already allocated ptr to pass back to C#. Even if there's a mismatch.
+	*appliedAffinityMask = appliedMask; // copy the current applied mask into the already allocated ptr to pass back to C#. Even if there's a mismatch.
 
 	if (appliedMask != suppliedAffinityMask) return AppliedMaskDoesNotMatch;
 

@@ -1,9 +1,10 @@
 ﻿using StreamPunk.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using StreamPunk.Threading.Thread.Errors;
 
 
-namespace StreamPunk.Threading.Linux
+namespace StreamPunk.Threading.Thread.Linux
 {
     public partial class Native
     {
@@ -58,10 +59,8 @@ namespace StreamPunk.Threading.Linux
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
 
             }
-            else if (outcomeCode > 0)
-            {
-                throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
-            }
+
+            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
 
             // Check to ensure that a valid tid was written back from the native context.
             if (id <= 0) throw new InvalidTidException($"tid={id}");
@@ -78,6 +77,8 @@ namespace StreamPunk.Threading.Linux
                 if (aamIndex >= 0 && affinityMask[i] != aam[aamIndex]) throw new AppliedMaskMismatchException($"i={i},aamIndex={aamIndex},affinityMask[i]={affinityMask[i]},aam[aamIndex]={aam[aamIndex]}");
             }
 
+            // you still apply the mask as the end for the user to see, because Linux can sometimes drop bits in the mask
+            // even though it's successful. i.e. if cgroups exist. 
             tid = id;
             appliedAffinityMask = aam;
         }
@@ -105,18 +106,21 @@ namespace StreamPunk.Threading.Linux
             {
                 string message = outcomeCode switch
                 {
-                    -1 => "Failed to get real number of cpus.",
-                    -2 => "Failed to allocate cpu set.",
-                    -3 => "Failed to set affinity.",
+                    -1 => "Invalid arg initialization.",
+                    -2 => "Failed to get real number of cpust.",
+                    -3 => "Too many cpus.",
+                    -4 => "Failed to allocate cpu set.",
+                    -5 => "Failed to set affinity",
+                    -6 => "Failed to allocate comparison cpu set.",
+                    -7 => "Failed to get affinity.",
+                    -8 => "Failed to allocate comparison mask.",
                     _ => "Unknown error.",
                 };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
             }
-            else if (outcomeCode > 0)
-            {
-                throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
-            }
+
+            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
         }
     }
 
@@ -216,7 +220,7 @@ namespace StreamPunk.Threading.Linux
                     {
                         if (bss.hasFailed || ct.IsCancellationRequested) return;
 
-                        if (thread == null) throw new FailedToGetThreadException("thread=null");
+                        if (thread == null) throw new ThreadNotFoundException("thread=null");
 
                         Native.SetAffinity(self.affinity.affinityMask, out int tid, out ulong[] _);
 
@@ -285,7 +289,7 @@ namespace StreamPunk.Threading.Linux
             {
                 try
                 {
-                    self.Start(state: state, executionContext: executionContext, ct: ct);
+                    self.Start(state, executionContext, ct);
                 }
                 catch (Exception e)
                 {
@@ -294,57 +298,5 @@ namespace StreamPunk.Threading.Linux
             }
             );
         }
-    }
-
-    class NativeCallException : Exception
-    {
-        public NativeCallException() { }
-        public NativeCallException(string message) : base(message) { }
-        public NativeCallException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class InvalidTidException : Exception
-    {
-        public InvalidTidException() { }
-        public InvalidTidException(string message) : base(message) { }
-        public InvalidTidException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class AppliedMaskMismatchException : Exception
-    {
-        public AppliedMaskMismatchException() { }
-        public AppliedMaskMismatchException(string message) : base(message) { }
-        public AppliedMaskMismatchException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadBootstrapException : Exception
-    {
-        public ThreadBootstrapException() { }
-        public ThreadBootstrapException(string message) : base(message) { }
-        public ThreadBootstrapException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadRuntimeException : Exception
-    {
-        public ThreadRuntimeException() { }
-        public ThreadRuntimeException(string message) : base(message) { }
-        public ThreadRuntimeException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadNotFoundException : Exception
-    {
-        public ThreadNotFoundException() { }
-        public ThreadNotFoundException(string message) : base(message) { }
-        public ThreadNotFoundException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class StartAsyncException : Exception
-    {
-        public StartAsyncException() { }
-        public StartAsyncException(string message) : base(message) { }
-        public StartAsyncException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class StartException : Exception
-    {
-        public StartException() { }
-        public StartException(string message) : base(message) { }
-        public StartException(string? message, Exception? innerException) : base(message, innerException) { }
     }
 }

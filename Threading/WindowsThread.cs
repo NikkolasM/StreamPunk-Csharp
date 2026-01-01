@@ -4,140 +4,64 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace StreamPunk.Threading.Windows
+using StreamPunk.Threading.Thread.Errors;
+
+namespace StreamPunk.Threading.Thread.Windows
 {
     public partial class Native
     {
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
-        [LibraryImport("PinThreadWindows.dll")]
-        public static partial int PinThreadUnsafe(
-            in ulong[] suppliedAffinityMask,
-            ulong suppliedMaskLength,
-            out int tid,
-            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 4)] // For passing an array on the heap allocated in the C back to the CLR safely. CLR needs to know the size of the arr. This is how. 
-            out ulong[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
-            out ulong appliedMaskLength
-            );
+        [LibraryImport("SetAffinityWindows.dll")]
+        public static partial int SetAffinityUnsafe(
+            ulong suppliedAffinityMask,
+            out ulong appliedAffinityMask
+        );
 
-        public static void PinThread(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask)
+        public static void SetAffinity(ulong suppliedAffinityMask, out ulong appliedAffinityMask)
         {
-            // Do an argument check
-            if (affinityMask.Length <= 0) throw new ArgumentException("Supplied affinity mask needs atleast one element.");
+            int outcomeCode = Native.SetAffinityUnsafe(suppliedAffinityMask, out appliedAffinityMask);
 
-            bool hasAtleastOneMarkedCore = false;
+            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
 
-            foreach (ulong element in affinityMask) if (element > 0UL) hasAtleastOneMarkedCore = true;
-
-            if (!hasAtleastOneMarkedCore) throw new ArgumentException("Supplied affinity mask needs atleast one marked core.");
-
-            // Make the native call to pin teh thread
-            int outcomeCode = Native.PinThreadUnsafe(
-             suppliedAffinityMask: affinityMask,
-             suppliedMaskLength: (ulong)affinityMask.Length,
-             tid: out int id,
-             appliedAffinityMask: out ulong[] aam,
-             appliedMaskLength: out ulong _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
-             );
-
-            // outcomeCode = 0 means success, anything else means something unexpected happened
             if (outcomeCode < 0)
             {
-                string message;
-
-                switch (outcomeCode)
+                string message = outcomeCode switch
                 {
-                    case -1:
-                        message = "Invalid arg initialization.";
-                        break;
-                    case -2:
-                        message = "Failed to allocate cpu set.";
-                        break;
-                    case -3:
-                        message = "Real bit position too large.";
-                        break;
-                    case -4:
-                        message = "Failed to set affinity.";
-                        break;
-                    case -5:
-                        message = "Failed to get real number of cpus.";
-                        break;
-                    case -6:
-                        message = "Failed to allocate real cpu set.";
-                        break;
-                    case -7:
-                        message = "Failed to get affinity";
-                        break;
-                    case -8:
-                        message = "Failed to allocate comparison mask";
-                        break;
-                    default:
-                        message = "Unknown error.";
-                        break;
-                }
+                    -1 => "Invalid argument initialization.",
+                    -2 => "Failed to get handle.",
+                    -3 => "Failed to set thread affinity mask.",
+                    -4 => "Applied affinity mask does not match.",
+                    _ => "Unknown error.",
+                };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
-
             }
-            else if (outcomeCode > 0)
-            {
-                throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
-            }
-
-            // Check to ensure that a valid tid was written back from the native context.
-            if (id <= 0) throw new InvalidTidException($"tid={id}");
-
-            // Check to see if the supplied and applied masks are the same.
-            // the affinity mask can be longer, all that's being checked is whether what's actually applied is a matching subset of what's supplied.
-            // iterate from right to left, and make raw number comparisons.
-            // No need to check if the real cpu subset of affinityMask is all 0's or not, the Linux kernel will return an error in such
-            // cases automatically through sched_setaffinity().
-            for (int i = affinityMask.Length - 1; i >= 0; i--)
-            {
-                int aamIndex = (aam.Length - 1) - (affinityMask.Length - 1 - i);
-
-                if (aamIndex >= 0 && affinityMask[i] != aam[aamIndex]) throw new AppliedMaskMismatchException($"i={i},aamIndex={aamIndex},affinityMask[i]={affinityMask[i]},aam[aamIndex]={aam[aamIndex]}");
-            }
-
-            tid = id;
-            appliedAffinityMask = aam;
         }
 
-        [LibraryImport("UnpinThreadLinux.so")]
-        public static partial int UnpinThreadUnsafe();
+        [LibraryImport("ResetAffinityWindows.dll")]
+        public static partial int ResetAffinityUnsafe(out ulong appliedAffinityMask);
 
         // Idempotent; can be invoked multiple times safely for the calling thread.
         // Just sets the given thread affinity to 1 for every physically available CPU.
-        public static void UnpinThread()
+        public static void ResetAffinity(out ulong appliedAffinityMask)
         {
-            int outcomeCode = Native.UnpinThreadUnsafe();
+            int outcomeCode = Native.ResetAffinityUnsafe(out appliedAffinityMask);
 
-            // outcomeCode = 0 means success, anything else means something unexpected happened
+            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
+
             if (outcomeCode < 0)
             {
-                string message;
-
-                switch (outcomeCode)
+                string message = outcomeCode switch
                 {
-                    case -1:
-                        message = "Failed to get real number of cpus.";
-                        break;
-                    case -2:
-                        message = "Failed to allocate cpu set.";
-                        break;
-                    case -3:
-                        message = "Failed to set affinity.";
-                        break;
-                    default:
-                        message = "Unknown error.";
-                        break;
-                }
+                    -1 => "Invalid argument initialization.",
+                    -2 => "Failed to get handle.",
+                    -3 => "Failed to set thread affinity mask.",
+                    -4 => "Applied affinity mask does not match.",
+                    _ => "Unknown error.",
+                };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
-            }
-            else if (outcomeCode > 0)
-            {
-                throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
             }
         }
     }
@@ -159,8 +83,8 @@ namespace StreamPunk.Threading.Windows
     public class Affinity
     {
         // an arbitrarily long bitmask read from right to left
-        public readonly ulong[] affinityMask;
-        public Affinity(ulong[] affinityMask)
+        public readonly ulong affinityMask;
+        public Affinity(ulong affinityMask)
         {
             this.affinityMask = affinityMask;
         }
@@ -171,19 +95,14 @@ namespace StreamPunk.Threading.Windows
         public readonly long timeoutMs;
 
         // make these two volatile, because the Thread instance may be reused. 
-        private volatile int tid;
         private volatile System.Threading.Thread? SystemThread;
         public Thread(Affinity affinity, long timeoutMs = 100L)
         {
             this.affinity = affinity;
             this.timeoutMs = timeoutMs;
-            this.tid = 0;
             this.SystemThread = null;
         }
-        public int GetTid()
-        {
-            return this.tid;
-        }
+
         public bool GetIsBackground()
         {
             if (this.SystemThread == null) throw new ThreadNotFoundException();
@@ -238,22 +157,21 @@ namespace StreamPunk.Threading.Windows
                     {
                         if (bss.hasFailed || ct.IsCancellationRequested) return;
 
-                        if (thread == null) throw new FailedToGetThreadException("thread=null");
+                        if (thread == null) throw new ThreadNotFoundException("thread=null");
 
-                        Native.PinThread(self.affinity.affinityMask, out int tid, out ulong[] _);
+                        Native.SetAffinityUnsafe(self.affinity.affinityMask, out ulong _);
 
                         if (bss.hasFailed || ct.IsCancellationRequested)
                         {
-                            Native.UnpinThread();
+                            Native.ResetAffinityUnsafe(out ulong _);
                             return;
                         }
 
-                        self.tid = tid;
                         bss.isBootstrapped = true;
                     }
                     catch (Exception e)
                     {
-                        Native.UnpinThread();
+                        Native.ResetAffinityUnsafe(out ulong _);
                         throw new ThreadBootstrapException(null, e);
                     }
 
@@ -263,7 +181,7 @@ namespace StreamPunk.Threading.Windows
                     }
                     catch (Exception e)
                     {
-                        Native.UnpinThread();
+                        Native.ResetAffinityUnsafe(out ulong _);
                         throw new ThreadRuntimeException(null, e);
                     }
                 });
@@ -316,57 +234,5 @@ namespace StreamPunk.Threading.Windows
             }
             );
         }
-    }
-
-    class NativeCallException : Exception
-    {
-        public NativeCallException() { }
-        public NativeCallException(string message) : base(message) { }
-        public NativeCallException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class InvalidTidException : Exception
-    {
-        public InvalidTidException() { }
-        public InvalidTidException(string message) : base(message) { }
-        public InvalidTidException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class AppliedMaskMismatchException : Exception
-    {
-        public AppliedMaskMismatchException() { }
-        public AppliedMaskMismatchException(string message) : base(message) { }
-        public AppliedMaskMismatchException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadBootstrapException : Exception
-    {
-        public ThreadBootstrapException() { }
-        public ThreadBootstrapException(string message) : base(message) { }
-        public ThreadBootstrapException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadRuntimeException : Exception
-    {
-        public ThreadRuntimeException() { }
-        public ThreadRuntimeException(string message) : base(message) { }
-        public ThreadRuntimeException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-
-    class ThreadNotFoundException : Exception
-    {
-        public ThreadNotFoundException() { }
-        public ThreadNotFoundException(string message) : base(message) { }
-        public ThreadNotFoundException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class StartAsyncException : Exception
-    {
-        public StartAsyncException() { }
-        public StartAsyncException(string message) : base(message) { }
-        public StartAsyncException(string? message, Exception? innerException) : base(message, innerException) { }
-    }
-    class StartException : Exception
-    {
-        public StartException() { }
-        public StartException(string message) : base(message) { }
-        public StartException(string? message, Exception? innerException) : base(message, innerException) { }
     }
 }

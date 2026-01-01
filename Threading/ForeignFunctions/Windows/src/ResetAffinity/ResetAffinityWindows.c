@@ -2,14 +2,19 @@
 #include <stdint.h> // you have to use non-legacy MinGW for your toolchain.
 
 enum OutcomeCode {
-	FailedToGetHandle = INT32_C(-1),
-	SetThreadAffinityMaskFailed = INT32_C(-2),
-	AppliedMaskDoesNotMatch = INT32_C(-3),
+	InvalidArgInitialization = INT32_C(-1),
+	FailedToGetHandle = INT32_C(-2),
+	SetThreadAffinityMaskFailed = INT32_C(-3),
+	AppliedMaskDoesNotMatch = INT32_C(-4),
 	Success = INT32_C(0)
 };
 
 __declspec(dllexport)
-int32_t ResetAffinityUnsafe() {
+int32_t ResetAffinityUnsafe(uint64_t* appliedAffinityMask) {
+	if (appliedAffinityMask == NULL) return InvalidArgInitialization;
+
+	*appliedAffinityMask = UINT64_C(0);
+
 	// sets a long to some negative number then casts it as a ptr. 
 	// That ptr address doesn't eval to anything, the address is interpreted raw.
 	// ensure the value of this address equates to -2.
@@ -30,6 +35,8 @@ int32_t ResetAffinityUnsafe() {
 
 		return SetThreadAffinityMaskFailed;
 	}
+
+	*appliedAffinnityMask = appliedMask;
 
 	if (appliedMask != affinityMask) return AppliedMaskDoesNotMatch;
 	

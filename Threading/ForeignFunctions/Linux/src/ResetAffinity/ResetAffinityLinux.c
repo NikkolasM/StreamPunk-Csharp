@@ -11,7 +11,7 @@ enum OutcomeCode {
     TooManyCpus = INT32_C(-3),
     FailedToAllocCpuSet = INT32_C(-4),
     FailedToSetAffinity = INT32_C(-5),
-    FailedToAllocRealCpuSet = INT32_C(-6),
+    FailedToAllocComparisonCpuSet = INT32_C(-6),
     FailedToGetAffinity = INT32_C(-7),
     FailedToAllocComparisonMask = INT32_C(-8),
     Success = INT32_C(0)
@@ -59,7 +59,7 @@ int32_t ResetAffinityUnsafe(
     if (realNumOfCpus > (int64_t)INT32_MAX) return TooManyCpus; // needs to fit since it will be passed to CPU_ALLOC, which expects a 32bit signed int.
 
     cpu_set_t* realcpuset = CPU_ALLOC((int32_t)realNumOfCpus);
-    if (realcpuset == NULL) return FailedToAllocRealCpuSet;
+    if (realcpuset == NULL) return FailedToAllocComparisonCpuSet;
 
     size_t realSize = CPU_ALLOC_SIZE((int32_t)realNumOfCpus); // expects an unsigned long 64bit, so type casting a positive signed long to unsigned long 64bit is safe
     CPU_ZERO_S(realSize, realcpuset);
