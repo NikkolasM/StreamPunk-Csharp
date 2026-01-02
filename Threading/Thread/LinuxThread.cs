@@ -1,8 +1,8 @@
 ﻿using StreamPunk.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using StreamPunk.Threading.Thread.Errors;
 
+using StreamPunk.Threading.Thread.Errors;
 
 namespace StreamPunk.Threading.Thread.Linux
 {
