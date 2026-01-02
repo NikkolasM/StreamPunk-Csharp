@@ -58,7 +58,6 @@ namespace StreamPunk.Threading.Thread.Linux
                 };
 
                 throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
-
             }
 
             if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
@@ -125,8 +124,8 @@ namespace StreamPunk.Threading.Thread.Linux
         }
     }
 
-        // important so that the calling thread of 'Start()' can do a simple spinlock with a timeout.
-        // awaiting the task context directly will screw things up.
+    // important so that the calling thread of 'Start()' can do a simple spinlock with a timeout.
+    // awaiting the task context directly will screw things up.
     internal class BootstrapState
     {
         // use volatile keyword so that access to the class instance isn't cached by the VM in the tight loops in 'Start()'
@@ -288,16 +287,15 @@ namespace StreamPunk.Threading.Thread.Linux
 
             return Task.Run(() =>
             {
-                try
-                {
-                    self.Start(state, executionContext, ct);
-                }
-                catch (Exception e)
-                {
-                    throw new StartAsyncException(null, e);
-                }
-            }
-            );
+                    try
+                    {
+                        self.Start(state, executionContext, ct);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new StartAsyncException(null, e);
+                    }
+            });
         }
     }
 }

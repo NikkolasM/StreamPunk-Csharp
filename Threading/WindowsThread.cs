@@ -223,16 +223,15 @@ namespace StreamPunk.Threading.Thread.Windows
 
             return Task.Run(() =>
             {
-                try
-                {
-                    self.Start(state: state, executionContext: executionContext, ct: ct);
-                }
-                catch (Exception e)
-                {
-                    throw new StartAsyncException(null, e);
-                }
-            }
-            );
+                    try
+                    {
+                        self.Start(state: state, executionContext: executionContext, ct: ct);
+                    }
+                    catch (Exception e)
+                    {
+                        throw new StartAsyncException(null, e);
+                    }
+            });
         }
     }
 }
