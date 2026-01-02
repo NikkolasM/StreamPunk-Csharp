@@ -50,9 +50,10 @@ namespace StreamPunk.Threading.Thread.Linux
                     -3 => "Real bit position too large.",
                     -4 => "Failed to set affinity.",
                     -5 => "Failed to get real number of cpus.",
-                    -6 => "Failed to allocate real cpu set.",
-                    -7 => "Failed to get affinity",
-                    -8 => "Failed to allocate comparison mask",
+                    -6 => "Too many cpus.",
+                    -7 => "Failed to allocate real cpu set.",
+                    -8 => "Failed to get affinity",
+                    -9 => "Failed to allocate comparison mask",
                     _ => "Unknown error.",
                 };
 

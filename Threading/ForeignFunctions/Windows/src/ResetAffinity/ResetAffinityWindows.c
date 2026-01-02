@@ -20,8 +20,6 @@ int32_t ResetAffinityUnsafe(uint64_t* appliedAffinityMask) {
 	// ensure the value of this address equates to -2.
 	HANDLE currThreadHandle = GetCurrentThread();
 
-	if (((int64_t)currThreadHandle) != INT64_C(-2)) return FailedToGetHandle;
-
 	uint64_t affinityMask = 0xFFFFFFFFFFFFFFFF; // all bits set to 1
 
 	// DWORD_PTR ISNT ACTUALLY A POINTER. WEIRD MICROSOFT STUFF.
@@ -36,7 +34,7 @@ int32_t ResetAffinityUnsafe(uint64_t* appliedAffinityMask) {
 		return SetThreadAffinityMaskFailed;
 	}
 
-	*appliedAffinnityMask = appliedMask;
+	*appliedAffinityMask = appliedMask;
 
 	if (appliedMask != affinityMask) return AppliedMaskDoesNotMatch;
 	

@@ -106,7 +106,7 @@ int32_t ResetAffinityUnsafe(
 
     *tid = (int32_t)(gettid());
     *appliedAffinityMask = comparisonMask;
-    *appliedMaskLength = numOfBytes;
+    *appliedMaskLength = numOfLongs;
 
 	return Success;
 }

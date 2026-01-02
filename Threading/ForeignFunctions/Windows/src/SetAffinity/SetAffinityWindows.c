@@ -20,8 +20,6 @@ int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffini
 	// ensure the value of this address equates to -2.
 	HANDLE currThreadHandle = GetCurrentThread(); 
 
-	if (((int64_t)currThreadHandle) != INT64_C(-2)) return FailedToGetHandle;
-
 	// DWORD_PTR ISNT ACTUALLY A POINTER. WEIRD MICROSOFT STUFF.
 	// Will either return the prior mask as a ulong 64bit, or return 0 which signals an error.
 	// Calling the API twice, to compare the output of the applied mask to see if the affinity was properly set.

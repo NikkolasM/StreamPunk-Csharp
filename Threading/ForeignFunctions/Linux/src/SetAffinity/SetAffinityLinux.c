@@ -17,9 +17,10 @@ enum OutcomeCode {
     RealBitPositionTooLarge = INT32_C(-3),
     FailedToSetAffinity = INT32_C(-4),
     FailedToGetRealNumCpus = INT32_C(-5),
-    FailedToAllocRealCpuSet = INT32_C(-6),
-    FailedToGetAffinity = INT32_C(-7),
-    FailedToAllocComparisonMask = INT32_C(-8),
+    TooManyCpus = INT32_C(-6),
+    FailedToAllocRealCpuSet = INT32_C(-7),
+    FailedToGetAffinity = INT32_C(-8),
+    FailedToAllocComparisonMask = INT32_C(-9),
     Success = INT32_C(0)
 };
 
