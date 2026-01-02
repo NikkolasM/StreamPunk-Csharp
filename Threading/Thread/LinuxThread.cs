@@ -297,14 +297,14 @@ namespace StreamPunk.Threading.Thread.Linux
 
             return Task.Run(() =>
             {
-                    try
-                    {
-                        self.Start(state, executionContext, ct);
-                    }
-                    catch (Exception e)
-                    {
-                        throw new StartAsyncException(null, e);
-                    }
+                try
+                {
+                    self.Start(state, executionContext, ct);
+                }
+                catch (Exception e)
+                {
+                    throw new StartAsyncException(null, e);
+                }
             });
         }
     }
