@@ -196,16 +196,7 @@ namespace StreamPunk.Threading.Thread.Linux
             {
                 if (ct.IsCancellationRequested) return;
 
-                // The thread instance can be reused, but requires the current thread to not be running or blocked for some reason.
-                // Requires aborting the current thread using the yet-to-be-made 'Abort()' method. 
-                if (this.SystemThread != null)
-                {
-                    System.Threading.ThreadState threadState = this.GetThreadState();
-                    bool isWaitSleepJoin = threadState == System.Threading.ThreadState.WaitSleepJoin;
-                    bool isRunning = threadState == System.Threading.ThreadState.Running;
-
-                    if (isRunning || isWaitSleepJoin) throw new ThreadStateException($"Invalid ThreadState for Start(). ThreadState={threadState}");
-                }
+                if (this.SystemThread != null) throw new ThreadStateException($"Thread already exists.");
 
                 if (ct.IsCancellationRequested) return;
 

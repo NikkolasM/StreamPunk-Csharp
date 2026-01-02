@@ -1,10 +1,10 @@
-﻿using System;
+﻿using StreamPunk.Threading.Thread.Errors;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-
-using StreamPunk.Threading.Thread.Errors;
 
 namespace StreamPunk.Threading.Thread.Windows
 {
@@ -115,7 +115,6 @@ namespace StreamPunk.Threading.Thread.Windows
 
             this.SystemThread.IsBackground = true;
         }
-
         public System.Threading.ThreadState GetThreadState()
         {
             if (this.SystemThread == null) throw new ThreadNotFoundException();
@@ -133,17 +132,8 @@ namespace StreamPunk.Threading.Thread.Windows
             {
                 if (ct.IsCancellationRequested) return;
 
-                // The thread instance can be reused, but requires the current thread to not be running or blocked for some reason.
-                // Requires aborting the current thread using the yet-to-be-made 'Abort()' method. 
-                if (this.SystemThread != null)
-                {
-                    System.Threading.ThreadState threadState = this.GetThreadState();
-                    bool isWaitSleepJoin = threadState == System.Threading.ThreadState.WaitSleepJoin;
-                    bool isRunning = threadState == System.Threading.ThreadState.Running;
-
-                    if (isRunning || isWaitSleepJoin) throw new ThreadStateException($"Invalid ThreadState for Start(). ThreadState={threadState}");
-                }
-
+                if (this.SystemThread != null) throw new ThreadStateException($"Thread already exists.");
+                
                 if (ct.IsCancellationRequested) return;
 
                 var self = this;
