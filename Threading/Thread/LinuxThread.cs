@@ -222,7 +222,20 @@ namespace StreamPunk.Threading.Thread.Linux
                         }
 
                         self.tid = tid;
+
+                        if (bss.hasFailed || ct.IsCancellationRequested)
+                        {
+                            Native.ResetAffinity();
+                            return;
+                        }
+
                         bss.isBootstrapped = true;
+
+                        if (bss.hasFailed || ct.IsCancellationRequested)
+                        {
+                            Native.ResetAffinity();
+                            return;
+                        }
                     }
                     catch (Exception e)
                     {
@@ -232,6 +245,12 @@ namespace StreamPunk.Threading.Thread.Linux
 
                     try
                     {
+                        if (bss.hasFailed || ct.IsCancellationRequested)
+                        {
+                            Native.ResetAffinity();
+                            return;
+                        }
+
                         executionContext(state, thread, ct);
                     }
                     catch (Exception e)

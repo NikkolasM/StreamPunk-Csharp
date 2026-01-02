@@ -158,6 +158,12 @@ namespace StreamPunk.Threading.Thread.Windows
                         }
 
                         bss.isBootstrapped = true;
+
+                        if (bss.hasFailed || ct.IsCancellationRequested)
+                        {
+                            Native.ResetAffinityUnsafe(out ulong _);
+                            return;
+                        }
                     }
                     catch (Exception e)
                     {
@@ -167,6 +173,12 @@ namespace StreamPunk.Threading.Thread.Windows
 
                     try
                     {
+                        if (bss.hasFailed || ct.IsCancellationRequested)
+                        {
+                            Native.ResetAffinityUnsafe(out ulong _);
+                            return;
+                        }
+
                         executionContext(state, thread, ct);
                     }
                     catch (Exception e)
