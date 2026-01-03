@@ -26,7 +26,7 @@ int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffini
 	uint64_t priorMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
 	uint64_t appliedMask = (uint64_t)SetThreadAffinityMask(currThreadHandle, (DWORD_PTR)affinityMask);
 
-	if (priorMask == UINT64_C(0) || appliedMask = UINT64_C(0)) {
+	if (priorMask == UINT64_C(0) || appliedMask == UINT64_C(0)) {
 		// potentially do something with the error code in the future, but for now, this works.
 		uint32_t errorCode = (uint32_t)GetLastError();
 
