@@ -229,11 +229,16 @@ namespace StreamPunk.Threading.Thread.Windows
 
                     ct.ThrowIfCancellationRequested();
                 }
+                catch (OperationCanceledException e)
+                {
+                    throw e;
+                    // throw it separately, because the task will type check the caught exception directly in order to have the surrounding task move to the cancelled state.
+                }
                 catch (Exception e)
                 {
                     throw new StartAsyncException(null, e);
                 }
-            }, CancellationToken.None);
+            }, ct);
         }
     }
 }
