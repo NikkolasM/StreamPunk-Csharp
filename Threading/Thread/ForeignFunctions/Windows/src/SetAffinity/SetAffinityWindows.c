@@ -9,8 +9,7 @@ enum OutcomeCode {
 	Success = INT32_C(0)
 };
 
-__declspec(dllexport)
-int32_t SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffinityMask) {
+__declspec(dllexport) int32_t __cdecl SetAffinityUnsafe(uint64_t suppliedAffinityMask, uint64_t *appliedAffinityMask) {
 	if (suppliedAffinityMask <= UINT64_C(0) || appliedAffinityMask == NULL) return InvalidArgInitialization;
 
 	*appliedAffinityMask = UINT64_C(0); // zero out for good practice

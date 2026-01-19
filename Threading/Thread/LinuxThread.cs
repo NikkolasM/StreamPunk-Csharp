@@ -1,8 +1,8 @@
 ﻿    using StreamPunk.Threading;
-    using System.Diagnostics;
-    using System.Runtime.InteropServices;
-
     using StreamPunk.Threading.Thread.Errors;
+    using System.Diagnostics;
+    using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
 
     namespace StreamPunk.Threading.Thread.Linux
     {
@@ -10,7 +10,8 @@
         {
             // imports only happen when you actually invoke the method so this is fine.
             // The values passed back via 'out' arguments will auto cleanup the underlying 
-            [LibraryImport("SetAffinityLinux.so")]
+            [LibraryImport("SetAffinityLinux.so", EntryPoint = "SetAffinityUnsafe")]
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             public static partial int SetAffinityUnsafe(
                 in ulong[] suppliedAffinityMask,
                 ulong suppliedMaskLength,
@@ -83,7 +84,8 @@
                 appliedAffinityMask = aam;
             }
 
-            [LibraryImport("ResetAffinityLinux.so")]
+            [LibraryImport("ResetAffinityLinux.so", EntryPoint = "ResetAffinityUnsafe")]
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             public static partial int ResetAffinityUnsafe(
                 out int tid,
                 [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] // For passing an array on the heap allocated in the C back to the CLR safely. CLR needs to know the size of the arr. This is how. 
@@ -194,36 +196,35 @@
             {
                 try
                 {
-                    if (ct.IsCancellationRequested) return;
+                    if (ct.IsCancellationRequested) return;  
 
                     if (this.SystemThread != null) throw new ThreadStateException($"Thread already exists.");
 
                     if (ct.IsCancellationRequested) return;
 
-                    var self = this;
                     BootstrapState bss = new BootstrapState(); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
 
                     this.SystemThread = new System.Threading.Thread(() =>
                     {
-                        System.Threading.Thread? thread = self.SystemThread;
+                        System.Threading.Thread? thread = this.SystemThread;
 
                         try
                         {
-                            if (bss.hasFailed || ct.IsCancellationRequested) return;
+                            if (ct.IsCancellationRequested || bss.hasFailed) return;
 
                             if (thread == null) throw new ThreadNotFoundException("thread=null");
 
-                            Native.SetAffinity(self.affinity.affinityMask, out int tid, out ulong[] _);
+                            Native.SetAffinity(this.affinity.affinityMask, out int tid, out ulong[] _);
 
-                            if (bss.hasFailed || ct.IsCancellationRequested)
+                            if (ct.IsCancellationRequested || bss.hasFailed)
                             {
                                 Native.ResetAffinity();
                                 return;
                             }
 
-                            self.tid = tid;
+                            this.tid = tid;
 
-                            if (bss.hasFailed || ct.IsCancellationRequested)
+                            if (ct.IsCancellationRequested || bss.hasFailed)
                             {
                                 Native.ResetAffinity();
                                 return;
@@ -231,7 +232,7 @@
 
                             bss.isBootstrapped = true;
 
-                            if (bss.hasFailed || ct.IsCancellationRequested)
+                            if (ct.IsCancellationRequested || bss.hasFailed)
                             {
                                 Native.ResetAffinity();
                                 return;
@@ -245,7 +246,7 @@
 
                         try
                         {
-                            if (bss.hasFailed || ct.IsCancellationRequested)
+                            if (ct.IsCancellationRequested || bss.hasFailed)
                             {
                                 Native.ResetAffinity();
                                 return;
@@ -267,7 +268,7 @@
                     // keep things hanging. The caller can decide to change the thread back to being a foreground thread rather than a background thread
                     // if this called method returns without exceptions.
                     this.SystemThread.IsBackground = true;
-                    this.SystemThread.Start();
+                    this.SystemThread.Start(); // synchronously registers the thread created as a root node in the CLR, so you don't have to worry about lifetime edge cases. 
 
                     // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
                     // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
@@ -291,21 +292,26 @@
 
             // for encapsulating a synchronous operation to bootstrap a new pinned thread executing a particular routine.
             // using a task to encapsulate the entire routine, so that the given task thread can retain its context on the particular bootstrapping routine.
+            // Ensures that the lifetime between this class instance and the thread it's meant to encapsulate are maintained properly. For instance, this will allow 
+            // not only async bootstrapping of the instance, but also the body of the task will retain routes to the original reference type args. so if the original caller
+            // doesn't use these values again, the task itself prevents them from being GCed. This also includes the class instance too.
             public Task StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
             {
-                var self = this;
-
                 return Task.Run(() =>
                 {
                     try
                     {
-                        self.Start(state, executionContext, ct);
+                        ct.ThrowIfCancellationRequested();
+
+                        this.Start(state, executionContext, ct);
+
+                        ct.ThrowIfCancellationRequested();
                     }
                     catch (Exception e)
                     {
                         throw new StartAsyncException(null, e);
                     }
-                });
+                }, CancellationToken.None);
             }
         }
     }

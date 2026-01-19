@@ -24,7 +24,7 @@ enum OutcomeCode {
     Success = INT32_C(0)
 };
 
-int32_t SetAffinityUnsafe(
+int32_t __cdecl SetAffinityUnsafe(
     uint64_t *suppliedAffinityMask,
     uint64_t maskLength,
     int32_t *tid,

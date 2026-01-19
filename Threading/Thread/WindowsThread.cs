@@ -1,7 +1,7 @@
-﻿using System.Diagnostics;
+﻿using StreamPunk.Threading.Thread.Errors;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-using StreamPunk.Threading.Thread.Errors;
 
 namespace StreamPunk.Threading.Thread.Windows
 {
@@ -9,7 +9,8 @@ namespace StreamPunk.Threading.Thread.Windows
     {
         // imports only happen when you actually invoke the method so this is fine.
         // The values passed back via 'out' arguments will auto cleanup the underlying 
-        [LibraryImport("SetAffinityWindows.dll")]
+        [LibraryImport("SetAffinityWindows.dll", EntryPoint = "SetAffinityUnsafe")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         public static partial int SetAffinityUnsafe(
             ulong suppliedAffinityMask,
             out ulong appliedAffinityMask
@@ -36,7 +37,8 @@ namespace StreamPunk.Threading.Thread.Windows
             }
         }
 
-        [LibraryImport("ResetAffinityWindows.dll")]
+        [LibraryImport("ResetAffinityWindows.dll", EntryPoint = "ResetAffinityUnsafe")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
         public static partial int ResetAffinityUnsafe(out ulong appliedAffinityMask);
 
         // Idempotent; can be invoked multiple times safely for the calling thread.
@@ -133,12 +135,11 @@ namespace StreamPunk.Threading.Thread.Windows
                 
                 if (ct.IsCancellationRequested) return;
 
-                var self = this;
                 BootstrapState bss = new BootstrapState(); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
 
                 this.SystemThread = new System.Threading.Thread(() =>
                 {
-                    System.Threading.Thread? thread = self.SystemThread;
+                    System.Threading.Thread? thread = this.SystemThread;
 
                     try
                     {
@@ -146,7 +147,7 @@ namespace StreamPunk.Threading.Thread.Windows
 
                         if (thread == null) throw new ThreadNotFoundException("thread=null");
 
-                        Native.SetAffinityUnsafe(self.affinity.affinityMask, out ulong _);
+                        Native.SetAffinityUnsafe(this.affinity.affinityMask, out ulong _);
 
                         if (bss.hasFailed || ct.IsCancellationRequested)
                         {
@@ -218,19 +219,21 @@ namespace StreamPunk.Threading.Thread.Windows
         // using a task to encapsulate the entire routine, so that the given task thread can retain its context on the particular bootstrapping routine.
         public Task StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
         {
-            var self = this;
-
             return Task.Run(() =>
             {
                 try
                 {
-                    self.Start(state: state, executionContext: executionContext, ct: ct);
+                    ct.ThrowIfCancellationRequested();
+
+                    this.Start(state: state, executionContext: executionContext, ct: ct);
+
+                    ct.ThrowIfCancellationRequested();
                 }
                 catch (Exception e)
                 {
                     throw new StartAsyncException(null, e);
                 }
-            });
+            }, CancellationToken.None);
         }
     }
 }
