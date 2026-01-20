@@ -1,5 +1,4 @@
-﻿    using StreamPunk.Threading;
-    using StreamPunk.Threading.Thread.Errors;
+﻿    using StreamPunk.Threading.Thread.Errors;
     using System.Diagnostics;
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
@@ -13,12 +12,12 @@
             [LibraryImport("SetAffinityLinux.so", EntryPoint = "SetAffinityUnsafe")]
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             public static partial int SetAffinityUnsafe(
-                in ulong[] suppliedAffinityMask,
-                ulong suppliedMaskLength,
-                out int tid,
+                in System.UInt64[] suppliedAffinityMask,
+                System.UInt64 suppliedMaskLength,
+                out System.Int32 tid,
                 [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 4)] // For passing an array on the heap allocated in the C back to the CLR safely. CLR needs to know the size of the arr. This is how. 
-                out ulong[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
-                out ulong appliedMaskLength
+                out System.UInt64[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
+                out System.UInt64 appliedMaskLength
                 );
 
             public static void SetAffinity(ulong[] affinityMask, out int tid, out ulong[] appliedAffinityMask)
@@ -33,12 +32,12 @@
                 if (!hasAtleastOneMarkedCore) throw new ArgumentException("Supplied affinity mask needs atleast one marked core.");
 
                 // Once the args are validated, make the native call to pin the thread
-                int outcomeCode = Native.SetAffinityUnsafe(
+                System.Int32 outcomeCode = Native.SetAffinityUnsafe(
                  suppliedAffinityMask: affinityMask,
-                 suppliedMaskLength: (ulong)affinityMask.Length,
-                 tid: out int id,
-                 appliedAffinityMask: out ulong[] aam,
-                 appliedMaskLength: out ulong _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
+                 suppliedMaskLength: (System.UInt64)affinityMask.Length,
+                 tid: out System.Int32 id,
+                 appliedAffinityMask: out System.UInt64[] aam,
+                 appliedMaskLength: out System.UInt64 _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
                  );
 
                 // outcomeCode = 0 means success, anything else means something unexpected happened
@@ -78,8 +77,8 @@
                     if (aamIndex >= 0 && affinityMask[i] != aam[aamIndex]) throw new AppliedMaskMismatchException($"i={i},aamIndex={aamIndex},affinityMask[i]={affinityMask[i]},aam[aamIndex]={aam[aamIndex]}");
                 }
 
-                // you still apply the mask as the end for the user to see, because Linux can sometimes drop bits in the mask
-                // even though it's successful. i.e. if cgroups exist. 
+                // you still apply the mask as the end for the user to see, because Linux can sometimes drop bits in the mask even though it's successful. i.e. if cgroups exist. 
+                // Also, DONT CAST THESE TYPES. YOU WANT THE LSP TO BE PISSED OFF WHEN THEYRE DIFFERENT
                 tid = id;
                 appliedAffinityMask = aam;
             }
@@ -87,20 +86,20 @@
             [LibraryImport("ResetAffinityLinux.so", EntryPoint = "ResetAffinityUnsafe")]
             [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             public static partial int ResetAffinityUnsafe(
-                out int tid,
+                out System.Int32 tid,
                 [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 2)] // For passing an array on the heap allocated in the C back to the CLR safely. CLR needs to know the size of the arr. This is how. 
-                out ulong[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
-                out ulong appliedMaskLength
+                out System.UInt64[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
+                out System.UInt64 appliedMaskLength
                 );
 
-            // Idempotent; can be invoked multiple times safely for the calling thread.
+            // Idempotent
             // Just sets the given thread affinity to 1 for every physically available CPU.
-            public static void ResetAffinity()
+            public static void ResetAffinity(out int tid, out ulong[] appliedAffinityMask)
             {
-                int outcomeCode = Native.ResetAffinityUnsafe(
-                    tid: out int id,
-                    appliedAffinityMask: out ulong[] aam,
-                    appliedMaskLength: out ulong _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
+                System.Int32 outcomeCode = Native.ResetAffinityUnsafe(
+                    tid: out System.Int32 id,
+                    appliedAffinityMask: out System.UInt64[] aam,
+                    appliedMaskLength: out System.UInt64 _ // because its just for a passed back property from the C so the CLR knows the length of 'appliedAffinityMask'
                     );
 
                 // outcomeCode = 0 means success, anything else means something unexpected happened
@@ -123,21 +122,38 @@
                 }
 
                 if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
+
+                // DONT CAST THESE TYPES. YOU WANT THE LSP TO BE PISSED OFF WHEN THEYRE DIFFERENT
+                tid = id;
+                appliedAffinityMask = aam;
             }
         }
 
         // important so that the calling thread of 'Start()' can do a simple spinlock with a timeout.
-        // awaiting the task context directly will screw things up.
         internal class BootstrapState
         {
-            // use volatile keyword so that access to the class instance isn't cached by the VM in the tight loops in 'Start()'
-            public volatile bool isBootstrapped;
-            public volatile bool hasFailed;
-
+            public bool isBootstrapped;
+            public bool hasFailed;
+            public bool GetIsBootstrapped()
+            {
+                return Volatile.Read(ref this.isBootstrapped); 
+            }
+            public void SetIsBootstrapped(bool IsBootstrapped)
+            {
+                Volatile.Write(ref this.isBootstrapped, IsBootstrapped);
+            }
+            public bool GetHasFailed()
+            {
+                return Volatile.Read(ref this.hasFailed);
+            }
+            public void SetHasFailed(bool HasFailed)
+            {
+                Volatile.Write(ref this.hasFailed, HasFailed);
+            }
             public BootstrapState()
             {
-                this.isBootstrapped = false;
-                this.hasFailed = false;
+                this.SetIsBootstrapped(false);
+                this.SetHasFailed(false);
             }
         }
         public class Affinity 
@@ -154,140 +170,111 @@
             public readonly Affinity affinity;
             public readonly long timeoutMs;
 
-            // make these two volatile, because the Thread instance may be reused. 
-            private volatile int tid;
-            private volatile System.Threading.Thread? SystemThread;
+            private int tid;
+            private System.Threading.Thread? DotnetThread;
             public Thread(Affinity affinity, long timeoutMs = 100L)
             {
                 this.affinity = affinity;
                 this.timeoutMs = timeoutMs;
-                this.tid = 0;
-                this.SystemThread = null;
+                this.SetTid(0);
+                this.SetDotnetThread(null);
             }
-            public int GetTid()
-            {
-                return this.tid;
-            }
-            public bool GetIsBackground()
-            {
-                if (this.SystemThread == null) throw new ThreadNotFoundException();
-
-                return this.SystemThread.IsBackground;
-            }
-            public void SetIsBackground()
-            {
-                if (this.SystemThread == null) throw new ThreadNotFoundException();
-
-                this.SystemThread.IsBackground = true;
-            }
-
-            public System.Threading.ThreadState GetThreadState()
-            {
-                if (this.SystemThread == null) throw new ThreadNotFoundException();
-
-                return this.SystemThread.ThreadState;
-            }
+            public System.Threading.Thread? GetDotnetThread() { return Volatile.Read(ref this.DotnetThread); }
+            public void SetDotnetThread(System.Threading.Thread? DotnetThread) { Volatile.Write(ref this.DotnetThread, DotnetThread); }
+            public int GetTid() { return Volatile.Read(ref this.tid); }
+            public void SetTid(int tid) { Volatile.Write(ref this.tid, tid); }
 
             // Checks current state of the given Thread instance it's a part of to ensure that no existing running thread routine is happening.
             // Create a bootstrap state to be used to mediate shared memory flags between the thread that is to be created and teh consumer thread calling Start().
             // Within the body of the new thread created, the thread is pinned, which includes an unpin saga to ensure the underlying thread is reset to a valid state.
             // If bootstrap is successful, the thread will be pinned and begin executing the supplied routine with the supplied state.
             public void Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
-            {
-                try
                 {
-                    if (ct.IsCancellationRequested) return;  
-
-                    if (this.SystemThread != null) throw new ThreadStateException($"Thread already exists.");
-
-                    if (ct.IsCancellationRequested) return;
-
-                    BootstrapState bss = new BootstrapState(); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
-
-                    this.SystemThread = new System.Threading.Thread(() =>
+                    try
                     {
-                        System.Threading.Thread? thread = this.SystemThread;
+                        if (ct.IsCancellationRequested) return;  
 
-                        try
+                        if (this.GetDotnetThread() != null) throw new ThreadStateException($"Thread already exists.");
+
+                        if (ct.IsCancellationRequested) return;
+
+                        BootstrapState bss = new (); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
+
+                        if (ct.IsCancellationRequested) return;
+
+                        System.Threading.Thread DotnetThread = new (() =>
                         {
-                            if (ct.IsCancellationRequested || bss.hasFailed) return;
+                            System.Threading.Thread? thread = this.GetDotnetThread();
 
-                            if (thread == null) throw new ThreadNotFoundException("thread=null");
-
-                            Native.SetAffinity(this.affinity.affinityMask, out int tid, out ulong[] _);
-
-                            if (ct.IsCancellationRequested || bss.hasFailed)
+                            try
                             {
-                                Native.ResetAffinity();
-                                return;
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) return;
+
+                                if (thread == null) throw new ThreadNotFoundException("thread=null");
+
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) return;
+
+                                Native.SetAffinity(this.affinity.affinityMask, out int tid, out ulong[] _);
+
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) { Native.ResetAffinity(out int _, out ulong[] _); return; }
+
+                                this.SetTid(tid);
+
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) { Native.ResetAffinity(out int _, out ulong[] _); return; }
+
+                                bss.SetIsBootstrapped(true);
+
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) { Native.ResetAffinity(out int _, out ulong[] _); return; }
+                            }
+                            catch (Exception e)
+                            {
+                                Native.ResetAffinity(out int _, out ulong[] _);
+                                throw new ThreadBootstrapException(null, e);
                             }
 
-                            this.tid = tid;
-
-                            if (ct.IsCancellationRequested || bss.hasFailed)
+                            try
                             {
-                                Native.ResetAffinity();
-                                return;
+                                if (ct.IsCancellationRequested || bss.GetHasFailed()) { Native.ResetAffinity(out int _, out ulong[] _); return; }
+
+                                executionContext(state, thread, ct);
                             }
-
-                            bss.isBootstrapped = true;
-
-                            if (ct.IsCancellationRequested || bss.hasFailed)
+                            catch (Exception e)
                             {
-                                Native.ResetAffinity();
-                                return;
+                                Native.ResetAffinity(out int _, out ulong[] _);
+                                throw new ThreadRuntimeException(null, e);
                             }
-                        }
-                        catch (Exception e)
-                        {
-                            Native.ResetAffinity();
-                            throw new ThreadBootstrapException(null, e);
-                        }
+                        });
 
-                        try
-                        {
-                            if (ct.IsCancellationRequested || bss.hasFailed)
-                            {
-                                Native.ResetAffinity();
-                                return;
-                            }
+                        this.SetDotnetThread(DotnetThread);
 
-                            executionContext(state, thread, ct);
-                        }
-                        catch (Exception e)
-                        {
-                            Native.ResetAffinity();
-                            throw new ThreadRuntimeException(null, e);
-                        }
-                    });
+                        if (ct.IsCancellationRequested) return;
 
-                    if (ct.IsCancellationRequested) return;
+                        // need to make it a background thread, since its a foreground thread by default. 
+                        // this will ensure that exceptions via timeouts properly shut down the entire process, rather than having a thread 
+                        // keep things hanging. The caller can decide to change the thread back to being a foreground thread rather than a background thread
+                        // if this called method returns without exceptions.
+                        DotnetThread.IsBackground = true;
+                        DotnetThread.Start(); // synchronously registers the thread created as a root node in the CLR, so you don't have to worry about lifetime edge cases. 
 
-                    // need to make it a background thread, since its a foreground thread by default. 
-                    // this will ensure that exceptions via timeouts properly shut down the entire process, rather than having a thread 
-                    // keep things hanging. The caller can decide to change the thread back to being a foreground thread rather than a background thread
-                    // if this called method returns without exceptions.
-                    this.SystemThread.IsBackground = true;
-                    this.SystemThread.Start(); // synchronously registers the thread created as a root node in the CLR, so you don't have to worry about lifetime edge cases. 
+                        // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
+                        // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
+                        // not be updated on the volatile members as consistently. The kernel underneath should schedule out the underlying thread so that
+                        // its not locked on just this CPU bound task here. Don't try to guess in the C# what the kernel wants, just let the kernel reschedule
+                        // the underlying thread, but not the CLR. The CFS is your friend.
+                        Stopwatch sw = new ();
+                        sw.Start();
 
-                    // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
-                    // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
-                    // not be updated on the volatile members as consistently. The kernel underneath should schedule out the underlying thread so that
-                    // its not locked on just this CPU bound task here. Don't try to guess in the C# what the kernel wants, just let the kernel reschedule
-                    // the underlying thread, but not the CLR. The CFS is your friend.
-                    Stopwatch sw = new Stopwatch();
-                    sw.Start();
+                        while (sw.ElapsedMilliseconds < this.timeoutMs) if (ct.IsCancellationRequested || bss.GetIsBootstrapped()) return;
 
-                    while (sw.ElapsedMilliseconds < this.timeoutMs) if (ct.IsCancellationRequested || bss.isBootstrapped) return;
+                        bss.SetHasFailed(true);
 
-                    bss.hasFailed = true;
-                    throw new ThreadBootstrapException("Timed out.");
+                        throw new ThreadBootstrapException("Timed out.");
 
-                }
-                catch (Exception e)
-                {
-                    throw new StartException(null, e);
-                }
+                    }
+                    catch (Exception e)
+                    {
+                        throw new StartException(null, e);
+                    }
             }
 
             // for encapsulating a synchronous operation to bootstrap a new pinned thread executing a particular routine.
@@ -309,8 +296,7 @@
                     }
                     catch (OperationCanceledException e)
                     {
-                        throw e;
-                        // throw it separately, because the task will type check the caught exception directly in order to have the surrounding task move to the cancelled state.
+                        throw e; // Throw directly so that the given task can transition to the Cancelled state properly
                     }
                     catch (Exception e)
                     {
