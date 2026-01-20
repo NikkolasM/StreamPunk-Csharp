@@ -294,9 +294,9 @@
 
                         ct.ThrowIfCancellationRequested();
                     }
-                    catch (OperationCanceledException e)
+                    catch (OperationCanceledException)
                     {
-                        throw e; // Throw directly so that the given task can transition to the Cancelled state properly
+                        throw; // Throw directly so that the given task can transition to the Cancelled state properly
                     }
                     catch (Exception e)
                     {

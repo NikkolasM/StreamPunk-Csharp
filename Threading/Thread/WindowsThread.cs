@@ -143,7 +143,7 @@ namespace StreamPunk.Threading.Thread.Windows
 
                 System.Threading.Thread DotnetThread = new (() =>
                 {
-                    System.Threading.Thread? thread = this.DotnetThread;
+                    System.Threading.Thread? thread = this.GetDotnetThread();
 
                     try
                     {
@@ -151,7 +151,7 @@ namespace StreamPunk.Threading.Thread.Windows
 
                         if (thread == null) throw new ThreadNotFoundException("thread=null");
 
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) { Native.ResetAffinity(out ulong _); return; }
+                        if (bss.GetHasFailed() || ct.IsCancellationRequested) return;
 
                         Native.SetAffinity(this.affinity.affinityMask, out ulong _);
 
@@ -204,7 +204,6 @@ namespace StreamPunk.Threading.Thread.Windows
                 bss.SetHasFailed(true);
 
                 throw new ThreadBootstrapException("Timed out.");
-
             }
             catch (Exception e)
             {
@@ -226,9 +225,9 @@ namespace StreamPunk.Threading.Thread.Windows
 
                     ct.ThrowIfCancellationRequested();
                 }
-                catch (OperationCanceledException e)
+                catch (OperationCanceledException)
                 {
-                    throw e;  // Throw directly so that the given task can transition to the Cancelled state properly
+                    throw;  // Throw directly so that the given task can transition to the Cancelled state properly
                 }
                 catch (Exception e)
                 {
