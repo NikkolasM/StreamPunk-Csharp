@@ -76,26 +76,14 @@ namespace StreamPunk.Threading.Thread.Windows
         public bool isBootstrapped;
         public bool hasFailed;
 
-        public bool GetIsBootstrapped()
-        {
-            return Volatile.Read(ref this.isBootstrapped);
-        }
+        public bool GetIsBootstrapped() { return Volatile.Read(ref this.isBootstrapped); }
         public void SetIsBootstrapped(bool IsBootstrapped)
         {
             Volatile.Write(ref this.isBootstrapped, IsBootstrapped);
         }
-        public bool GetHasFailed()
-        {
-            return Volatile.Read(ref this.hasFailed);
-        }
-        public void SetHasFailed(bool HasFailed)
-        {
-            Volatile.Write(ref this.hasFailed, HasFailed);
-        }
         public BootstrapState()
         {
             this.SetIsBootstrapped(false);
-            this.SetHasFailed(false);
         }
     }
     public class Affinity
@@ -112,34 +100,56 @@ namespace StreamPunk.Threading.Thread.Windows
         public readonly Affinity affinity;
         public readonly long timeoutMs;
 
-        // make these two volatile, because the Thread instance may be reused. 
+        // must be handled using volatile semantics
         private System.Threading.Thread? DotnetThread;
-        public Thread(Affinity affinity, long timeoutMs = 100L)
+        public required CancellationTokenSource CancellationTokenSource;
+        private bool IsDisposed;
+        private bool IsDisposing;
+        public Thread(Affinity affinity, long timeoutMs = 100L, CancellationTokenSource? cts = null)
         {
             this.affinity = affinity;
             this.timeoutMs = timeoutMs;
+
             this.SetDotnetThread(null);
+
+            if (cts != null) this.SetCancellationTokenSource(cts);
+            else this.SetCancellationTokenSource(new CancellationTokenSource()); // need some cancellation token source so that the Dispose method can reuse it. 
+
+            this.SetIsDisposing(false);
+            this.SetIsDisposed(false); 
         }
         public System.Threading.Thread? GetDotnetThread() { return Volatile.Read(ref this.DotnetThread); }
-        public void SetDotnetThread(System.Threading.Thread? DotnetThread) { Volatile.Write(ref this.DotnetThread, DotnetThread); }
+        private void SetDotnetThread(System.Threading.Thread? DotnetThread) { Volatile.Write(ref this.DotnetThread, DotnetThread); }
+        public CancellationTokenSource GetCancellationTokenSource() { return Volatile.Read(ref this.CancellationTokenSource); }
+        private void SetCancellationTokenSource(CancellationTokenSource cts) { Volatile.Write(ref this.CancellationTokenSource, cts); }
+        public bool GetIsDisposed() { return Volatile.Read(ref this.IsDisposed); }
+        private void SetIsDisposed(bool IsDisposed) { Volatile.Write(ref this.IsDisposed, IsDisposed); }
+        public bool GetIsDisposing() { return Volatile.Read(ref this.IsDisposing); }
+        private void SetIsDisposing(bool IsDisposing) { Volatile.Write(ref this.IsDisposing, IsDisposing); }
+        private bool ShouldExit(CancellationToken ct) { return this.GetIsDisposing() || this.GetIsDisposed() || ct.IsCancellationRequested; }
 
         // Checks current state of the given Thread instance it's a part of to ensure that no existing running thread routine is happening.
         // Create a bootstrap state to be used to mediate shared memory flags between the thread that is to be created and teh consumer thread calling Start().
         // Within the body of the new thread created, the thread is pinned, which includes an unpin saga to ensure the underlying thread is reset to a valid state.
         // If bootstrap is successful, the thread will be pinned and begin executing the supplied routine with the supplied state.
-        public void Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
+        public void Start(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext)
         {
+            CancellationToken ct = this.CancellationTokenSource.Token;
+
+            // don't allow the cancellation token to be reused if already cancelled.
+            if (ct.IsCancellationRequested) throw new ThreadBootstrapException("Already cancelled."); 
+
             try
             {
-                if (ct.IsCancellationRequested) return;
+                if (this.ShouldExit(ct)) return;
 
                 if (this.GetDotnetThread() != null) throw new ThreadStateException($"Thread already exists.");
-                
-                if (ct.IsCancellationRequested) return;
+
+                if (this.ShouldExit(ct)) return;
 
                 BootstrapState bss = new (); // to capture the bootstrap state inside the closure so that the calling thread of 'Start()' can spinlock on such
 
-                if (ct.IsCancellationRequested) return;
+                if (this.ShouldExit(ct)) return;
 
                 System.Threading.Thread DotnetThread = new (() =>
                 {
@@ -147,19 +157,19 @@ namespace StreamPunk.Threading.Thread.Windows
 
                     try
                     {
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) return;
+                        if (this.ShouldExit(ct)) return;
 
                         if (thread == null) throw new ThreadNotFoundException("thread=null");
 
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) return;
+                        if (this.ShouldExit(ct)) return;
 
                         Native.SetAffinity(this.affinity.affinityMask, out ulong _);
 
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) { Native.ResetAffinity(out ulong _); return; }
+                        if (this.ShouldExit(ct)) { Native.ResetAffinity(out ulong _); return; }
 
                         bss.SetIsBootstrapped(true);
 
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) { Native.ResetAffinity(out ulong _); return; }
+                        if (this.ShouldExit(ct)) { Native.ResetAffinity(out ulong _); return; }
                     }
                     catch (Exception e)
                     {
@@ -169,9 +179,11 @@ namespace StreamPunk.Threading.Thread.Windows
 
                     try
                     {
-                        if (bss.GetHasFailed() || ct.IsCancellationRequested) { Native.ResetAffinity(out ulong _); return; }
+                        if (this.ShouldExit(ct)) { Native.ResetAffinity(out ulong _); return; }
 
                         executionContext(state, thread, ct);
+
+                        Native.ResetAffinity(out ulong _); // reset the affinity once the work is done. the code can exit out normally now without lingering side effects.
                     }
                     catch (Exception e)
                     {
@@ -182,14 +194,19 @@ namespace StreamPunk.Threading.Thread.Windows
 
                 this.SetDotnetThread(DotnetThread);
 
-                if (ct.IsCancellationRequested) return;
+                if (this.ShouldExit(ct)) return;
 
                 // need to make it a background thread, since its a foreground thread by default. 
                 // this will ensure that exceptions via timeouts properly shut down the entire process, rather than having a thread 
                 // keep things hanging. The caller can decide to change the thread back to being a foreground thread rather than a background thread
                 // if this called method returns without exceptions.
                 DotnetThread.IsBackground = true;
+
+                if (this.ShouldExit(ct)) return;
+
                 DotnetThread.Start();
+
+                if (this.ShouldExit(ct)) return;
 
                 // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
                 // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
@@ -201,7 +218,7 @@ namespace StreamPunk.Threading.Thread.Windows
 
                 while (sw.ElapsedMilliseconds < this.timeoutMs) if (ct.IsCancellationRequested || bss.GetIsBootstrapped()) return;
 
-                bss.SetHasFailed(true);
+                this.CancellationTokenSource.Cancel();
 
                 throw new ThreadBootstrapException("Timed out.");
             }
@@ -213,15 +230,19 @@ namespace StreamPunk.Threading.Thread.Windows
 
         // for encapsulating a synchronous operation to bootstrap a new pinned thread executing a particular routine.
         // using a task to encapsulate the entire routine, so that the given task thread can retain its context on the particular bootstrapping routine.
-        public Task StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext, CancellationToken ct)
+        public Task StartAsync(StartState state, Action<StartState, System.Threading.Thread, CancellationToken> executionContext)
         {
+            CancellationToken ct = this.CancellationTokenSource.Token;
+
             return Task.Run(() =>
             {
                 try
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    this.Start(state: state, executionContext: executionContext, ct: ct);
+                    this.Start(state: state, executionContext: executionContext);
+
+                    if (this.GetIsDisposing()) { this.SetIsDisposed(true); this.SetIsDisposing(false); }
 
                     ct.ThrowIfCancellationRequested();
                 }
@@ -234,6 +255,12 @@ namespace StreamPunk.Threading.Thread.Windows
                     throw new StartAsyncException(null, e);
                 }
             }, ct);
+        }
+
+        public void Dispose()
+        {
+            this.SetIsDisposing(true);
+            this.CancellationTokenSource.Cancel();
         }
     }
 }

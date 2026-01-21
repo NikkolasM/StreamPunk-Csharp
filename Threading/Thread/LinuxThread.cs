@@ -269,7 +269,6 @@
                         bss.SetHasFailed(true);
 
                         throw new ThreadBootstrapException("Timed out.");
-
                     }
                     catch (Exception e)
                     {
