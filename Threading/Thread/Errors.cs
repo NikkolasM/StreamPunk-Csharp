@@ -58,4 +58,18 @@ namespace StreamPunk.Threading.Thread.Errors
         public StartException(string message) : base(message) { }
         public StartException(string? message, Exception? innerException) : base(message, innerException) { }
     }
+
+    class DisposingException : Exception
+    {
+        public DisposingException() { }
+        public DisposingException(string message) : base(message) { }
+        public DisposingException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
+
+    class TimedOutException : Exception
+    {
+        public TimedOutException() { }
+        public TimedOutException(string message) : base(message) { }
+        public TimedOutException(string? message, Exception? innerException) : base(message, innerException) { }
+    }
 }
