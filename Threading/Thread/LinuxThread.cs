@@ -488,7 +488,7 @@ namespace StreamPunk.Threading.Thread.Linux
                 {
                     this.ThrowIfShouldExit(ct);
 
-                    this.Start(state, executionContext);
+                    this.Start(state, executionContext); this.ThrowIfShouldExit(ct);
                 }
                 catch (Exception e)
                 {
