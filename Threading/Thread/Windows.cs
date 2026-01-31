@@ -132,10 +132,10 @@ namespace StreamPunk.Threading.Thread.Windows
         public bool GetStartAsyncExited() { return Volatile.Read(ref this.StartAsyncExited); }
         public void SetStartAsyncExitedToTrue() { Volatile.Write(ref this.StartAsyncExited, true); }
 
-        public bool GetIsDisposing() { lock (_DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposing); }
+        public bool GetIsDisposing() { lock (this._DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposing); }
         public void SetIsDisposingToTrue() { Volatile.Write(ref this.IsDisposing, true); }
 
-        public bool GetIsDisposed() { lock (_DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposed); }
+        public bool GetIsDisposed() { lock (this._DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposed); }
         public void AttemptFinalizeDispose()
         {
             // IsReadyToFinalize = true if all the conditions below are met:
