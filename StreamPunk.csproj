@@ -10,6 +10,7 @@
   <ItemGroup>
     <Folder Include="EventLoop\" />
     <Folder Include="Pipes\" />
+    <Folder Include="Threading\Thread\ForeignFunctions\Linux\src\GetAffinity\" />
   </ItemGroup>
 
 </Project>

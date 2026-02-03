@@ -15,7 +15,7 @@ enum OutcomeCode {
     Success = INT32_C(0)
 };
 
-int32_t __cdecl ResetAffinityUnsafe(
+int32_t __cdecl GetAffinityUnsafe(
     int32_t* tid,
     uint64_t** appliedAffinityMask, // outer pointer is the referece in C#, inner pointer is the actual array which is fundamentally a pointer to index 0 of the array on that given data type.
     uint64_t* appliedMaskLength

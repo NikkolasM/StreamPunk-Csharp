@@ -122,6 +122,15 @@ namespace StreamPunk.Threading.Thread.Linux
             tid = id;
             appliedAffinityMask = aam;
         }
+
+        [LibraryImport("GetAffinityLinux.so", EntryPoint = "GetAffinityUnsafe")]
+        [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
+        public static partial int GetAffinityUnsafe(out ulong[] affinityMask, out int tid);
+
+        public static void GetAffinity(out ulong[] affinityMask, out int tid)
+        {
+
+        }
     }
     public class Affinity
     {
