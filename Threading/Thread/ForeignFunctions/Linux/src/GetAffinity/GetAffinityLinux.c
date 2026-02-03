@@ -9,18 +9,16 @@ enum OutcomeCode {
     InvalidArgInitialization = INT32_C(-1),
     FailedToGetRealNumCpus = INT32_C(-2),
     TooManyCpus = INT32_C(-3),
-    FailedToAllocCpuSet = INT32_C(-4),
-    FailedToSetAffinity = INT32_C(-5),
-    FailedToAllocOutputCpuSet = INT32_C(-6),
-    FailedToGetAffinity = INT32_C(-7),
-    FailedToAllocOutputMask = INT32_C(-8),
+    FailedToAllocOutputCpuSet = INT32_C(-4),
+    FailedToGetAffinity = INT32_C(-5),
+    FailedToAllocOutputMask = INT32_C(-6),
     Success = INT32_C(0)
 };
 
 int32_t __cdecl ResetAffinityUnsafe(
-	int32_t* tid,
-	uint64_t** appliedAffinityMask, // outer pointer is the referece in C#, inner pointer is the actual array which is fundamentally a pointer to index 0 of the array on that given data type.
-	uint64_t* appliedMaskLength
+    int32_t* tid,
+    uint64_t** appliedAffinityMask, // outer pointer is the referece in C#, inner pointer is the actual array which is fundamentally a pointer to index 0 of the array on that given data type.
+    uint64_t* appliedMaskLength
 ) {
     if (tid == NULL || appliedAffinityMask == NULL || appliedMaskLength == NULL) return InvalidArgInitialization;
 
@@ -30,29 +28,7 @@ int32_t __cdecl ResetAffinityUnsafe(
     *appliedAffinityMask = NULL;
     *appliedMaskLength = UINT64_C(0);
 
-    //***GET THE NUM OF CPUS FROM THE KERNEL AND THEN SET THOSE CPUs ALL TO 1 IN THE BITMASK TO ENABLE THEM
-
-    int64_t numOfCpus = (int64_t)sysconf(_SC_NPROCESSORS_CONF);
-	if (numOfCpus <= INT64_C(0)) return FailedToGetRealNumCpus;
-    if (numOfCpus > (int64_t)INT32_MAX) return TooManyCpus; // needs to fit since it will be passed to CPU_ALLOC, which expects a 32bit signed int.
-
-	cpu_set_t* cpuset = CPU_ALLOC((int32_t)numOfCpus);
-	if (cpuset == NULL) return FailedToAllocCpuSet;
-
-	size_t size = CPU_ALLOC_SIZE((int32_t)numOfCpus);
-	CPU_ZERO_S(size, cpuset);
-
-	// safe to cast to unsigned, because the prior <= 0 check ensures the value 'numOfCpus' isn't negative, nor over the int32 max
-	// Most-significant-bit is what's used to define whether a signed integer is positive or negative.
-    // 0-indexing for the CPU numbers
-	for (int32_t i = INT32_C(0); i < (int32_t)numOfCpus; i++) CPU_SET_S(i, size, cpuset);
-
-	int32_t outcomeCode = (int32_t)sched_setaffinity(INT32_C(0), size, cpuset); // 0 for pid means the current executing thread. 
-	CPU_FREE(cpuset);
-
-	if (outcomeCode < INT32_C(0)) return FailedToSetAffinity;
-
-    // ***NOW GET THE AFFINITY FROM THE KERNEL TO ENSURE THE UPDATED AFFINITY MATCHES 
+    // ***GET THE AFFINITY FROM THE KERNEL
 
     int64_t realNumOfCpus = (int64_t)sysconf(_SC_NPROCESSORS_CONF);
     if (realNumOfCpus <= INT64_C(0)) return FailedToGetRealNumCpus;
@@ -77,8 +53,8 @@ int32_t __cdecl ResetAffinityUnsafe(
     // safe to cast numOfLongs to uint64, since numOfLongs should always be positive.
     uint64_t numOfBytes = (((uint64_t)numOfLongs) * UINT64_C(64)) / UINT64_C(8);
 
-    uint64_t* comparisonMask = (uint64_t*)calloc(numOfLongs, sizeof(uint64_t));
-    if (comparisonMask == NULL) {
+    uint64_t* outputMask = (uint64_t*)calloc(numOfLongs, sizeof(uint64_t));
+    if (outputMask == NULL) {
         CPU_FREE(realcpuset);
         return FailedToAllocOutputMask;
     }
@@ -94,19 +70,19 @@ int32_t __cdecl ResetAffinityUnsafe(
             uint8_t extractionMask = UINT8_C(1) << j; // current byte extraction mask
             uint8_t extractedBit = (extractionMask & currByte) >> j; // extracted bit in the currently selected byte
 
-            // Derive the equivalent index in the comparison mask this iteration is in
+            // Derive the equivalent index in the output mask this iteration is in
             // iterate right to left. (i + 1 byte) / 8 where dividing by 8 is to bucket bytes to 64 bit longs.
-            uint64_t currIndexOfComparisonMask = ((uint64_t)numOfLongs) - ((i + UINT64_C(8)) / UINT64_C(8));
+            uint64_t currIndexOfOutputMask = ((uint64_t)numOfLongs) - ((i + UINT64_C(8)) / UINT64_C(8));
 
-            comparisonMask[currIndexOfComparisonMask] = ((comparisonMask[currIndexOfComparisonMask] << UINT64_C(1)) | ((uint64_t)(extractedBit)));
+            outputMask[currIndexOfOutputMask] = ((outputMask[currIndexOfOutputMask] << UINT64_C(1)) | ((uint64_t)(extractedBit)));
         }
     }
 
     CPU_FREE(realcpuset);
 
     *tid = (int32_t)(gettid());
-    *appliedAffinityMask = comparisonMask;
+    *appliedAffinityMask = outputMask;
     *appliedMaskLength = numOfLongs;
 
-	return Success;
+    return Success;
 }

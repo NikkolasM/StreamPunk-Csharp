@@ -20,7 +20,7 @@ enum OutcomeCode {
     TooManyCpus = INT32_C(-6),
     FailedToAllocRealCpuSet = INT32_C(-7),
     FailedToGetAffinity = INT32_C(-8),
-    FailedToAllocComparisonMask = INT32_C(-9),
+    FailedToAllocOutputMask = INT32_C(-9),
     Success = INT32_C(0)
 };
 
@@ -112,7 +112,7 @@ int32_t __cdecl SetAffinityUnsafe(
     uint64_t* comparisonMask = (uint64_t*)calloc(numOfLongs, sizeof(uint64_t));
     if (comparisonMask == NULL) {
         CPU_FREE(realcpuset);
-        return FailedToAllocComparisonMask;
+        return FailedToAllocOutputMask;
     }
 
     // The num of indexes on realNumOfCpus matches that of the total bytes - 1 

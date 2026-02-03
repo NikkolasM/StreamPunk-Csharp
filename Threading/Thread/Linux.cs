@@ -15,7 +15,7 @@ namespace StreamPunk.Threading.Thread.Linux
             in System.UInt64[] suppliedAffinityMask,
             System.UInt64 suppliedMaskLength,
             out System.Int32 tid,
-            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 4)] out System.UInt64[] appliedAffinityMask, // latest .NET will dealloc the passed back heap for me, since it knows the size of the array, and the bits per element.
+            [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 4)] out System.UInt64[] appliedAffinityMask,
             out System.UInt64 aamLength
             );
 
@@ -31,13 +31,13 @@ namespace StreamPunk.Threading.Thread.Linux
 
             System.Int32 outcomeCode = Native.SetAffinityUnsafe(
              suppliedAffinityMask: affinityMask,
-             suppliedMaskLength: (ulong)affinityMask.Length, // DONT CAST TO System.UINT64, YOU WANT THE LSP TO BE PISSED OFF WHEN THIS CAST CONVERSION IS WRONG. THUS, CAST TO ULONG, WHICH THE LSP KNOWS IS THE SAME AS THAT OTHER TYPE.
+             suppliedMaskLength: (ulong)affinityMask.Length, 
              tid: out System.Int32 id,
              appliedAffinityMask: out System.UInt64[] aam,
              aamLength: out System.UInt64 _
              );
 
-            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
+            if (outcomeCode > 0) Environment.FailFast(null, new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}"));
 
             if (outcomeCode < 0)
             {
@@ -55,11 +55,11 @@ namespace StreamPunk.Threading.Thread.Linux
                     _ => "Unknown error",
                 };
 
-                throw new NativeCallException($"{message}. outcomeCode={outcomeCode}");
+                Environment.FailFast(null, new NativeCallException($"{message}. outcomeCode={outcomeCode}"));
             }
 
             // Check to ensure that a valid tid was written back from the native context.
-            if (id <= 0) throw new InvalidTidException($"tid={id}");
+            if (id <= 0) Environment.FailFast(null, new InvalidTidException($"tid={id}"));
 
             // Check to see if the supplied and applied masks are the same.
             // the affinity mask can be longer, all that's being checked is whether what's actually applied is a matching subset of what's supplied.
@@ -70,7 +70,7 @@ namespace StreamPunk.Threading.Thread.Linux
             {
                 int aamIndex = (aam.Length - 1) - (affinityMask.Length - 1 - i);
 
-                if (aamIndex >= 0 && affinityMask[i] != aam[aamIndex]) throw new AppliedMaskMismatchException($"i={i},aamIndex={aamIndex},affinityMask[i]={affinityMask[i]},aam[aamIndex]={aam[aamIndex]}");
+                if (aamIndex >= 0 && affinityMask[i] != aam[aamIndex]) Environment.FailFast(null, new AppliedMaskMismatchException($"i={i},aamIndex={aamIndex},affinityMask[i]={affinityMask[i]},aam[aamIndex]={aam[aamIndex]}"));
             }
 
             // you still apply the mask as the end for the user to see, because Linux can sometimes drop bits in the mask even though it's successful. i.e. if cgroups exist. 
@@ -113,10 +113,10 @@ namespace StreamPunk.Threading.Thread.Linux
                     _ => "Unknown error.",
                 };
 
-                throw new NativeCallException($"{message} outcomeCode={outcomeCode}");
+                Environment.FailFast(null, new NativeCallException($"{message} outcomeCode={outcomeCode}"));
             }
 
-            if (outcomeCode > 0) throw new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}");
+            if (outcomeCode > 0) Environment.FailFast(null, new NativeCallException($"Unknown outcome code. outcomeCode={outcomeCode}"));
 
             // DONT CAST THESE TYPES. YOU WANT THE LSP TO BE PISSED OFF WHEN THEYRE DIFFERENT
             tid = id;
@@ -139,18 +139,15 @@ namespace StreamPunk.Threading.Thread.Linux
     // threads interacting with the physical streampunk thread class instance itself. Therefore, the wrapper can either be safely copied or stay on the stack.
     public readonly struct ThreadAPIProxy<StartState>
     {
-        public readonly Func<System.Threading.Thread?> GetDotnetThread;
         public readonly Func<Affinity> GetAffinity;
         public readonly Action<Affinity> SetAffinity;
         public readonly Action ResetAffinity;
         public ThreadAPIProxy(
-            Func<System.Threading.Thread?> GetDotnetThreadDelegate,
             Func<Affinity> GetAffinityDelegate,
             Action<Affinity> SetAffinityDelegate,
             Action ResetAffinityDelegate
             )
         {
-            this.GetDotnetThread = GetDotnetThreadDelegate;
             this.GetAffinity = GetAffinityDelegate;
             this.SetAffinity = SetAffinityDelegate;
             this.ResetAffinity = ResetAffinityDelegate;
@@ -166,21 +163,20 @@ namespace StreamPunk.Threading.Thread.Linux
     }
     internal class DisposeStateMachine()
     {
-        private bool UsingStartAsync = false;
-        private bool DotnetThreadStarted = false; // important so that if an error is thrown within Start() before DotnetThread.Start() is called, the entire instance can gracefully clean up.
+        private bool UsingStartAsyncOnly = false;
+        private bool UsingStartOnly = false;
+
         private bool DotnetThreadExited = false;
         private bool StartExited = false;
         private bool StartAsyncExited = false;
+
         private bool IsDisposing = false;
-        private bool IsDisposed = false;
 
-        private readonly Lock _DisposingToDisposedTransactionLock = new();
+        public bool GetUsingStartAsyncOnly() { return Volatile.Read(ref this.UsingStartAsyncOnly); }
+        public void SetUsingStartAsyncOnlyToTrue() { Volatile.Write(ref this.UsingStartAsyncOnly, true); }
 
-        public bool GetUsingStartAsync() { return Volatile.Read(ref this.UsingStartAsync); }
-        public void SetUsingStartAsyncToTrue() { Volatile.Write(ref this.UsingStartAsync, true); }
-
-        public bool GetDotnetThreadStarted() { return Volatile.Read(ref this.DotnetThreadStarted); }
-        public void SetDotnetThreadStartedToTrue() { Volatile.Write(ref this.DotnetThreadStarted, true); }
+        public bool GetUsingStartOnly() { return Volatile.Read(ref this.UsingStartOnly); }
+        public void SetUsingStartOnlyToTrue() { Volatile.Write(ref this.UsingStartOnly, true); }
 
         public bool GetDotnetThreadExited() { return Volatile.Read(ref this.DotnetThreadExited); }
         public void SetDotnetThreadExitedToTrue() { Volatile.Write(ref this.DotnetThreadExited, true); }
@@ -191,30 +187,16 @@ namespace StreamPunk.Threading.Thread.Linux
         public bool GetStartAsyncExited() { return Volatile.Read(ref this.StartAsyncExited); }
         public void SetStartAsyncExitedToTrue() { Volatile.Write(ref this.StartAsyncExited, true); }
 
-        public bool GetIsDisposing() { lock (_DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposing); }
+        public bool GetIsDisposing() { return Volatile.Read(ref this.IsDisposing); }
         public void SetIsDisposingToTrue() { Volatile.Write(ref this.IsDisposing, true); }
 
-        public bool GetIsDisposed() { lock (_DisposingToDisposedTransactionLock) return Volatile.Read(ref this.IsDisposed); }
-        public void AttemptFinalizeDispose()
+        public bool GetIsDisposed() 
         {
-            // IsReadyToFinalize = true if all the conditions below are met:
-            // - Start method have exited
-            // - If the Dotnet thread execution body either exited or was never started in the first place
-            // - If called using StartAsync, if the execution context + the start method + the task returned by StartAsync have exited
-            bool isReadyToFinalizeDisposal =
-               (!Volatile.Read(ref this.DotnetThreadStarted) || Volatile.Read(ref this.DotnetThreadExited)) &&
-                Volatile.Read(ref this.StartExited) &&
-                (!Volatile.Read(ref this.UsingStartAsync) || Volatile.Read(ref this.StartAsyncExited));
+            if (Volatile.Read(ref this.UsingStartOnly)) return Volatile.Read(ref this.StartExited) && Volatile.Read(ref this.DotnetThreadExited);
+            
+            if (Volatile.Read(ref this.UsingStartAsyncOnly)) return Volatile.Read(ref this.StartAsyncExited) && Volatile.Read(ref this.StartExited) && Volatile.Read(ref this.DotnetThreadExited);
 
-            if (isReadyToFinalizeDisposal)
-            {
-                // lock important for ordering guarantees when calling in Dispose() while a dispose is already occuring on the instance.
-                lock (this._DisposingToDisposedTransactionLock)
-                {
-                    Volatile.Write(ref this.IsDisposing, false);
-                    Volatile.Write(ref this.IsDisposed, true);
-                }
-            }
+            return false;
         }
     }
 
@@ -232,7 +214,8 @@ namespace StreamPunk.Threading.Thread.Linux
         private System.Threading.Thread? DotnetThread = null;
 
         private readonly DisposeStateMachine _DisposeStateMachine = new();
-        private readonly Lock _DisposeInitTransactionLock = new();
+
+        private byte Started = 0;
 
         public Thread(Affinity Affinity, decimal TimeoutMs = 50m, CancellationTokenSource? cts = null)
         {
@@ -245,21 +228,21 @@ namespace StreamPunk.Threading.Thread.Linux
             this.cts = cts != null ? CancellationTokenSource.CreateLinkedTokenSource(cts.Token) : new CancellationTokenSource();
         }
 
-        public Affinity GetAffinity() { lock (this._AffinityTransactionLock) return Volatile.Read(ref this.Affinity); }
+        public Affinity GetAffinity() { lock (this._AffinityTransactionLock) return this.Affinity; }
 
         private void SetAffinity(Affinity newAffinity)
         {
             lock (this._AffinityTransactionLock)
             {
-                int currTid = Volatile.Read(ref this.Tid);
+                int currTid = this.Tid;
 
                 Native.SetAffinity(newAffinity.affinityMask, out int tidAppliedTo, out ulong[] aam);
 
-                Volatile.Write(ref this.Affinity, newAffinity);
-                Volatile.Write(ref this.AppliedAffinity, new Affinity(aam));
-                Volatile.Write(ref this.Tid, tidAppliedTo);
+                this.Affinity = newAffinity;
+                this.AppliedAffinity = new(aam);
+                this.Tid = tidAppliedTo;
 
-                if (currTid != tidAppliedTo) throw new TidDoesNotMatchException($"currTid={currTid},tidAppliedTo={tidAppliedTo}");
+                if (currTid != tidAppliedTo) Environment.FailFast(null, new TidDoesNotMatchException($"currTid={currTid},tidAppliedTo={tidAppliedTo}"));
             }
         }
 
@@ -267,31 +250,31 @@ namespace StreamPunk.Threading.Thread.Linux
         {
             lock (this._AffinityTransactionLock)
             {
-                int currTid = Volatile.Read(ref this.Tid);
+                int currTid = this.Tid;
 
                 Native.ResetAffinity(out int tidAppliedTo, out ulong[] aam);
 
                 Affinity newAffinity = new(aam);
 
-                Volatile.Write(ref this.Affinity, newAffinity);
-                Volatile.Write(ref this.AppliedAffinity, newAffinity);
-                Volatile.Write(ref this.Tid, tidAppliedTo);
+                this.Affinity = newAffinity;
+                this.AppliedAffinity = newAffinity;
+                this.Tid = tidAppliedTo;
 
-                if (currTid != tidAppliedTo) throw new TidDoesNotMatchException($"currTid={currTid},tidAppliedTo={tidAppliedTo}");
+                if (currTid != tidAppliedTo) Environment.FailFast(null, new TidDoesNotMatchException($"currTid={currTid},tidAppliedTo={tidAppliedTo}"));
             }
         }
 
-        public Affinity GetAppliedAffinity() { lock (this._AffinityTransactionLock) return Volatile.Read(ref this.AppliedAffinity); }
+        public Affinity GetAppliedAffinity() { lock (this._AffinityTransactionLock) return this.AppliedAffinity; }
 
-        public int GetTid() { lock (this._AffinityTransactionLock) return Volatile.Read(ref this.Tid); }
+        public int GetTid() { lock (this._AffinityTransactionLock) return this.Tid; }
 
         public CancellationTokenSource GetCancellationTokenSource() { return this.cts; }
 
         public System.Threading.Thread? GetDotnetThread() { return Volatile.Read(ref this.DotnetThread); }
 
-        public bool GetIsDisposing() { lock (this._DisposeInitTransactionLock) return this._DisposeStateMachine.GetIsDisposing(); }
+        public bool GetIsDisposing() { return this._DisposeStateMachine.GetIsDisposing() && !this._DisposeStateMachine.GetIsDisposed(); }
 
-        public bool GetIsDisposed() { lock (this._DisposeInitTransactionLock) return this._DisposeStateMachine.GetIsDisposed(); }
+        public bool GetIsDisposed() { return this._DisposeStateMachine.GetIsDisposed(); }
 
         public Task AwaitDisposalAsync(CancellationToken ct, decimal TimeoutMs = 0m)
         {
@@ -330,7 +313,7 @@ namespace StreamPunk.Threading.Thread.Linux
         // Create a bootstrap state to be used to mediate shared memory flags between the thread that is to be created and teh consumer thread calling Start().
         // Within the body of the new thread created, the thread is pinned, which includes an unpin saga to ensure the underlying thread is reset to a valid state.
         // If bootstrap is successful, the thread will be pinned and begin executing the supplied routine with the supplied state.
-        public void Start(StartState state, Action<StartState, ThreadAPIProxy<StartState>, CancellationToken> executionContext)
+        private void CreateAndStartThread(StartState state, Action<StartState, ThreadAPIProxy<StartState>, CancellationToken> executionContext)
         {
             CancellationToken ct = this.cts.Token;
 
@@ -342,14 +325,8 @@ namespace StreamPunk.Threading.Thread.Linux
 
                 System.Threading.Thread DotnetThread = new(() =>
                 {
-                    this._DisposeStateMachine.SetDotnetThreadStartedToTrue();
-
-                    System.Threading.Thread? thread = this.GetDotnetThread();
-
                     try
                     {
-                        if (thread == null) { throw new ThreadNotFoundException(); } this.ThrowIfShouldExit(ct);
-
                         this.SetAffinity(this.Affinity); this.ThrowIfShouldExit(ct);
 
                         bsm.SetIsBootstrappedToTrue(); this.ThrowIfShouldExit(ct);
@@ -358,17 +335,12 @@ namespace StreamPunk.Threading.Thread.Linux
                     {
                         this.ResetAffinity();
 
-                        // will set IsDisposed=true if this context is the last context to exit out. 
-                        if (e is DisposingException) {
-                            lock (this._DisposeInitTransactionLock)
-                            {
-                                this._DisposeStateMachine.SetDotnetThreadExitedToTrue();
-                                this._DisposeStateMachine.AttemptFinalizeDispose();
-                                return;
-                            }
-                        } 
+                        if (e is DisposingException || e is OperationCanceledException)
+                        {
+                            this._DisposeStateMachine.SetDotnetThreadExitedToTrue();
 
-                        if (e is OperationCanceledException) return;
+                            return;
+                        }
 
                         throw new ThreadBootstrapException(null, e);
                     }
@@ -377,34 +349,25 @@ namespace StreamPunk.Threading.Thread.Linux
                     {
                         this.ThrowIfShouldExit(ct);
 
-                        ThreadAPIProxy<StartState> proxy = new(this.GetDotnetThread, this.GetAffinity, this.SetAffinity, this.ResetAffinity); this.ThrowIfShouldExit(ct);
+                        ThreadAPIProxy<StartState> proxy = new(this.GetAffinity, this.SetAffinity, this.ResetAffinity); this.ThrowIfShouldExit(ct);
 
                         executionContext(state, proxy, ct); this.ThrowIfShouldExit(ct);
 
                         this.ResetAffinity(); // reset the affinity once the work is done. the code can exit out normally now without lingering side effects.
                     }
                     catch (Exception e)
-                    {
-                        if (e is TidDoesNotMatchException) throw new ThreadRuntimeException(null, e); // if during the happy path.
-
+                    { 
                         this.ResetAffinity();
 
-                        // will set IsDisposed=true if this context is the last context to exit out. 
-                        if (e is DisposingException) {
-                            lock (this._DisposeInitTransactionLock)
-                            {
-                                this._DisposeStateMachine.SetDotnetThreadExitedToTrue();
-                                this._DisposeStateMachine.AttemptFinalizeDispose();
-                                return;
-                            }
-                        }
+                        if (e is DisposingException || e is OperationCanceledException)
+                        {
+                            this._DisposeStateMachine.SetDotnetThreadExitedToTrue();
 
-                        if (e is OperationCanceledException) return; // these exceptions are for handling whether the overall thread is cancelled or is being disposed.
+                            return;
+                        }
 
                         throw new ThreadRuntimeException(null, e); // for all other types of exceptions that don't fit the criteria of the prior conditions.
                     }
-
-                    this._DisposeStateMachine.AttemptFinalizeDispose();
                 });
 
                 this.ThrowIfShouldExit(ct);
@@ -415,10 +378,10 @@ namespace StreamPunk.Threading.Thread.Linux
                 // if this called method returns without exceptions.
                 DotnetThread.IsBackground = true; this.ThrowIfShouldExit(ct);
 
-                Volatile.Write(ref this.DotnetThread, DotnetThread); this.ThrowIfShouldExit(ct);
-
                 // synchronously registers the thread created as a root node in the CLR, so you don't have to worry about lifetime edge cases. 
                 DotnetThread.Start(); this.ThrowIfShouldExit(ct);
+
+                Volatile.Write(ref this.DotnetThread, DotnetThread); this.ThrowIfShouldExit(ct);
 
                 // use a spin lock to monitor the thread bootstrapping. This is the sync API, so spinlocking this way works and allows
                 // instant an accurate timeouts. Removes the fuss related to rescheduling different threads from the .NET ThreadPool which may
@@ -441,11 +404,7 @@ namespace StreamPunk.Threading.Thread.Linux
 
                 if (this._DisposeStateMachine.GetIsDisposing())
                 {
-                    lock (this._DisposeInitTransactionLock)
-                    {
-                        this._DisposeStateMachine.SetStartExitedToTrue();
-                        this._DisposeStateMachine.AttemptFinalizeDispose();
-                    }
+                    this._DisposeStateMachine.SetStartExitedToTrue();
                 } else
                 {
                     this.cts.Cancel(); // to ensure that if the thread instance were to ever bootstrap after, it can quickly exit out via the cancellation.
@@ -455,20 +414,26 @@ namespace StreamPunk.Threading.Thread.Linux
             }
             catch (Exception e)
             {
-                if (e is DisposingException)
+                if (e is DisposingException || e is OperationCanceledException)
                 {
-                    lock (this._DisposeInitTransactionLock)
-                    {
-                        this._DisposeStateMachine.SetStartExitedToTrue();
-                        this._DisposeStateMachine.AttemptFinalizeDispose();
-                        throw;
-                    }
+                    this._DisposeStateMachine.SetStartExitedToTrue();
+ 
+                    throw;
                 }
-
-                if (e is OperationCanceledException) throw;
 
                 throw new StartException(null, e);
             }
+        }
+
+        public void Start(StartState state, Action<StartState, ThreadAPIProxy<StartState>, CancellationToken> executionContext)
+        {
+            byte startedComparand = Volatile.Read(ref this.Started);
+
+            if (startedComparand == 0) Interlocked.CompareExchange(ref this.Started, 1, startedComparand);
+
+            this._DisposeStateMachine.SetUsingStartOnlyToTrue();
+
+            this.CreateAndStartThread(state, executionContext);
         }
 
         // for encapsulating a synchronous operation to bootstrap a new pinned thread executing a particular routine.
@@ -478,9 +443,13 @@ namespace StreamPunk.Threading.Thread.Linux
         // doesn't use these values again, the task itself prevents them from being GCed. This also includes the class instance too.
         public Task StartAsync(StartState state, Action<StartState, ThreadAPIProxy<StartState>, CancellationToken> executionContext)
         {
+            byte startedComparand = Volatile.Read(ref this.Started);
+
+            if (startedComparand == 0) Interlocked.CompareExchange(ref this.Started, 1, startedComparand);
+
             CancellationToken ct = this.cts.Token;
 
-            this._DisposeStateMachine.SetUsingStartAsyncToTrue();
+            this._DisposeStateMachine.SetUsingStartAsyncOnlyToTrue();
 
             return Task.Run(() =>
             {
@@ -488,18 +457,15 @@ namespace StreamPunk.Threading.Thread.Linux
                 {
                     this.ThrowIfShouldExit(ct);
 
-                    this.Start(state, executionContext); this.ThrowIfShouldExit(ct);
+                    this.CreateAndStartThread(state, executionContext); this.ThrowIfShouldExit(ct);
                 }
                 catch (Exception e)
                 {
                     if (e is DisposingException)
                     {
-                        lock (this._DisposeInitTransactionLock)
-                        {
-                            this._DisposeStateMachine.SetStartExitedToTrue();
-                            this._DisposeStateMachine.AttemptFinalizeDispose();
-                            throw new OperationCanceledException(null, e);
-                        }
+                        this._DisposeStateMachine.SetStartExitedToTrue();
+
+                        throw new OperationCanceledException(null, e);
                     }
 
                     if (e is OperationCanceledException) throw; // so the surrounding task can exit in the Cancelled state. Should be visible here, since cts.Cancel() uses interlocked under the hood, which it 
@@ -512,17 +478,11 @@ namespace StreamPunk.Threading.Thread.Linux
         {
             if (this._DisposeStateMachine.GetIsDisposing() || this._DisposeStateMachine.GetIsDisposed()) return;
 
-            // having a lock here is important, so that both the write to the flag and the invocation of the cancellation is transactional from the POV of catch blocks in relevant code that looks at these flags.
-            lock (this._DisposeInitTransactionLock)
-            {
-                if (this._DisposeStateMachine.GetIsDisposing()) return;
+            this._DisposeStateMachine.SetIsDisposingToTrue();
 
-                this._DisposeStateMachine.SetIsDisposingToTrue();
-
-                // reusing the ct is simpler for both cancellations and disposals. This reduces how much is needed to be injected
-                // into the execution context supplied while also being able to reuse the safe-exit logic that's made in the supplied execution context.
-                this.cts.Cancel();
-            }
+            // reusing the ct is simpler for both cancellations and disposals. This reduces how much is needed to be injected
+            // into the execution context supplied while also being able to reuse the safe-exit logic that's made in the supplied execution context.
+            this.cts.Cancel();
         }
     }
 
